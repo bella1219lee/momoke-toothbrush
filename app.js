@@ -32,11 +32,28 @@
   }
 
   // ---------- 儲存 ----------
+  var OLD_BACKUP_KEY = "momoke-brush-state-v1-schema1-backup";
+  var MIGRATION_KEY = "momoke-brush-migration";
+  var migratedGrants = [];
   var state = load();
   function load() {
     try {
       var raw = localStorage.getItem(STORE_KEY);
-      if (raw) { var s = L.normalizeState(JSON.parse(raw)); if (s) return s; }
+      if (raw) {
+        var obj = JSON.parse(raw);
+        if (obj && obj.schema === L.SCHEMA) { var s = L.normalizeState(obj); if (s) return s; }
+        // 舊格式（schema 1）→ 轉換並保存；舊資料另存一份備份
+        var m = L.migrateState(obj, now(), Math.random);
+        if (m) {
+          try {
+            localStorage.setItem(OLD_BACKUP_KEY, raw);
+            localStorage.setItem(MIGRATION_KEY, JSON.stringify({ from: obj.schema || 1, to: L.SCHEMA, at: new Date(now()).toISOString(), notes: m.notes }));
+            localStorage.setItem(STORE_KEY, JSON.stringify(m.state));
+          } catch (e) { /* ignore */ }
+          migratedGrants = m.granted;
+          return m.state;
+        }
+      }
     } catch (e) { /* ignore */ }
     return L.emptyState();
   }
@@ -86,33 +103,52 @@
     var day = state.days[key] || {};
     var d = new Date(key + "T12:00");
     $("today-label").textContent = "今天 " + (d.getMonth() + 1) + "月" + d.getDate() + "日 " + WEEKDAYS[d.getDay()];
-    setSlot("slot-m", !!day.m);
-    setSlot("slot-e", !!day.e);
-    $("home-hint").textContent = hintText(ts, day);
+    var complete = !L.currentSeasonId(state);
+    var slotNow = L.slotOf(ts);
+    var h = new Date(ts).getHours();
+    var morningOver = slotNow !== "morning";            // 今天 12:00 之後（直到 04:00）
+    var eveningStarted = slotNow === "evening";
+    setSlot("slot-m", slotInfo(day.m, day.mc, slotNow === "morning", morningOver, false, complete));
+    setSlot("slot-e", slotInfo(day.e, day.ec, eveningStarted, false, !eveningStarted, complete));
+    $("home-hint").textContent = hintText(ts, day, complete, slotNow, h);
     var n = L.collectedIn(state, "s1").length, total = s1Total();
     $("home-count").textContent = n + " / " + total;
     $("home-bar").style.width = (100 * n / total) + "%";
   }
-  function setSlot(id, done) {
-    var s = $(id);
-    s.classList.toggle("done", done);
-    s.querySelector(".slot-mark").textContent = done ? "✓" : "○";
+  // 時段狀態：得到卡片 / 已完成 / 現在可得 / 已錯過 / 未到時間
+  function slotInfo(done, card, open, over, later, complete) {
+    if (card) return { cls: "done", mark: "✓", sub: "得到卡片！", card: card };
+    if (done) return { cls: "done", mark: "✓", sub: "已完成" };
+    if (complete) return { cls: open ? "open" : "", mark: "○", sub: open ? "現在可以刷牙" : "" };
+    if (open) return { cls: "open", mark: "○", sub: "刷牙得一張卡片" };
+    if (over) return { cls: "missed", mark: "–", sub: "已錯過" };
+    if (later) return { cls: "", mark: "○", sub: "下午五點開始" };
+    return { cls: "", mark: "○", sub: "" };
   }
-  function hintText(ts, day) {
-    if (!L.currentSeasonId(state)) {
+  function setSlot(id, info) {
+    var s = $(id);
+    ["done", "open", "missed"].forEach(function (c) { s.classList.toggle(c, info.cls === c); });
+    s.querySelector(".slot-mark").textContent = info.mark;
+    s.querySelector(".slot-sub").textContent = info.sub;
+    s.setAttribute("data-card", info.card || "");
+  }
+  function hintText(ts, day, complete, slotNow, h) {
+    if (complete) {
       if (L.isSeasonComplete(state, "s1")) return "恭喜集齊第一季！每天也要好好刷牙！";
+      return "每天也要好好刷牙！";
     }
-    if (day.cap) return "今天已經捕捉到" + L.byId[day.cap].name + "！明天再來吧！";
-    var h = new Date(ts).getHours();
-    var eveningNow = h >= 17 || h < L.DAY_START_HOUR;
-    if (day.m && !day.e) return "還差晚上一次就能捕捉萌可！";
-    if (!day.m && day.e) return "明天早上和晚上都刷牙，就能捕捉萌可！";
-    if (!day.m) {
-      if (h >= 4 && h < 12) return "早上和晚上都刷牙，就能捕捉萌可！";
-      return eveningNow ? "今天早上沒有刷牙，晚上也要記得刷牙！明天再加油！"
-                        : "今天早上沒有刷牙，明天再加油！晚上也要記得刷牙！";
+    var cards = L.cardsOnDay(day);
+    if (slotNow === "morning") {
+      if (day.mc) return "早上的卡片已經得到了！晚上五點後刷牙，可以再得到一張！";
+      return "現在刷牙兩分鐘，就能得到一張卡片！";
     }
-    return "早上和晚上都刷牙，就能捕捉萌可！";
+    if (slotNow === "evening") {
+      if (day.ec) return cards >= 2 ? "今天的兩張卡片都得到了，明天再來吧！" : "晚上的卡片已經得到了！明天早上再來吧！";
+      return day.mc ? "今天已經得到一張卡片！現在刷牙兩分鐘，可以再得到一張！" : "現在刷牙兩分鐘，就能得到一張卡片！";
+    }
+    // 12:00–17:00
+    return day.mc ? "早上的卡片已經得到了！晚上五點後刷牙，可以再得到一張！"
+                  : "早上的刷牙錯過了。晚上五點後刷牙，還可以得到一張卡片！";
   }
   $("home-collect").addEventListener("click", function () {
     if (L.isSeasonComplete(state, "s1")) go("celebrate"); else go("album");
@@ -174,19 +210,29 @@
   // ---------- 刷牙計時（以 Date 計算，不靠累計 tick） ----------
   var RING_C = 2 * Math.PI * 96;
   $("ring-fg").style.strokeDasharray = RING_C;
-  var brush = { running: false, startTs: 0, acc: 0, seg: null, zone: -1, raf: 0, iv: 0 };
+  var SLIDE_MS = 10000; // 幻燈片：每 10 秒（刷牙時間）換一張
+  var brush = { running: false, startTs: 0, acc: 0, seg: null, zone: -1, raf: 0, iv: 0, plan: null, revealed: -1, slides: [], slide: -1, finishTimer: 0 };
 
   function elapsed() {
     return brush.acc + (brush.seg != null ? (Date.now() - brush.seg) * SPEED : 0);
   }
   function startBrush() {
+    clearTimeout(brush.finishTimer);
     brush.running = true;
     brush.startTs = now();
+    // 開始時決定這次會不會得到卡片、是哪一張（保存在 localStorage；中途停止下次沿用）
+    brush.plan = L.planBrush(state, brush.startTs, Math.random);
+    save();
     brush.acc = 0;
     brush.seg = Date.now();
     brush.zone = -1;
+    brush.revealed = -1;
+    brush.slide = -1;
     document.querySelectorAll(".tq").forEach(function (q) { q.classList.remove("active", "done"); });
     $("brush-paused").hidden = true;
+    $("btn-stop").hidden = false;
+    $("screen-brush").classList.remove("finished");
+    setupStage(brush.plan);
     go("brush");
     sound.start();
     requestWake();
@@ -194,6 +240,75 @@
     clearInterval(brush.iv);
     brush.iv = setInterval(tick, 200);
     loop();
+  }
+
+  function setupStage(plan) {
+    var reveal = $("reveal"), show = $("slideshow"), cap = $("brush-caption");
+    var stage = $("brush-stage");
+    if (plan.earn) {
+      var item = L.byId[plan.id];
+      reveal.hidden = false; show.hidden = true;
+      reveal.classList.toggle("wide", item.type === "still");
+      reveal.setAttribute("data-id", item.id);
+      reveal.setAttribute("data-revealed", "0");
+      var box = $("reveal-img");
+      box.innerHTML = "";
+      var v = cardVisual(item);
+      if (v.tagName === "IMG") v.alt = ""; // 未揭曉前不讀出名字
+      box.appendChild(v);
+      reveal.querySelectorAll(".cover").forEach(function (c) { c.classList.remove("open", "active"); });
+      stage.setAttribute("data-mode", "reveal");
+      cap.textContent = "刷完兩分鐘，就能得到這張卡片！";
+    } else {
+      reveal.hidden = true; show.hidden = false;
+      stage.setAttribute("data-mode", "slideshow");
+      var have = L.collectedSet(state);
+      // 已收集的卡片：最近得到的先播，其餘隨機
+      var list = state.collected.map(function (c) { return L.byId[c.id]; }).filter(Boolean).reverse();
+      var rest = list.slice(1);
+      for (var i = rest.length - 1; i > 0; i--) { var k = Math.floor(Math.random() * (i + 1)); var t = rest[i]; rest[i] = rest[k]; rest[k] = t; }
+      brush.slides = list.length ? [list[0]].concat(rest) : [];
+      var msg = plan.reason === "outside" ? "現在不是刷牙時段，不會得到卡片。"
+              : plan.reason === "already" ? (plan.slot === "morning" ? "今天早上已經得到卡片了！" : "今天晚上已經得到卡片了！")
+              : "你已經集齊所有卡片了！";
+      cap.textContent = msg + (brush.slides.length ? "\n一起看看你的收藏吧！" : "");
+      show.classList.toggle("empty", !brush.slides.length);
+      if (!brush.slides.length) {
+        var f = $("slide-frame");
+        f.innerHTML = "";
+        f.className = "slide-frame friendly";
+        f.appendChild(el("span", "friendly-emoji", "🪥✨"));
+        f.appendChild(el("span", "friendly-text", "在早上或晚上的刷牙時段刷牙，就能收集萌可卡片！"));
+        $("slide-name").textContent = "";
+      }
+    }
+  }
+  function showSlide(i) {
+    if (!brush.slides.length) return;
+    var item = brush.slides[i % brush.slides.length];
+    var f = $("slide-frame");
+    f.className = "slide-frame" + (item.type === "still" ? " wide" : "");
+    f.innerHTML = "";
+    f.setAttribute("data-id", item.id);
+    f.appendChild(cardVisual(item));
+    void f.offsetWidth; f.classList.add("in");
+    $("slide-name").textContent = item.name;
+  }
+  function updateReveal(n, z, done) {
+    var reveal = $("reveal");
+    if (n !== brush.revealed) {
+      var prev = brush.revealed;
+      brush.revealed = n;
+      reveal.setAttribute("data-revealed", String(n));
+      reveal.querySelectorAll(".cover").forEach(function (c) {
+        var q = Number(c.getAttribute("data-q"));
+        c.classList.toggle("open", q < n);
+      });
+      if (prev >= 0 && n > prev) { sound.sparkle(); }
+    }
+    reveal.querySelectorAll(".cover").forEach(function (c) {
+      c.classList.toggle("active", !done && Number(c.getAttribute("data-q")) === z);
+    });
   }
   function loop() {
     cancelAnimationFrame(brush.raf);
@@ -225,9 +340,16 @@
         q.classList.toggle("done", i < z);
       });
     }
+    if (brush.plan && brush.plan.earn) {
+      // 每刷完一個位置（30 秒）揭開卡片的四分之一：上左、上右、下左、下右
+      updateReveal(Math.min(4, Math.floor(e / L.ZONE_MS)), z, e >= L.BRUSH_MS);
+    } else {
+      var si = Math.floor(e / SLIDE_MS);
+      if (si !== brush.slide && e < L.BRUSH_MS) { brush.slide = si; showSlide(si); }
+    }
     if (e >= L.BRUSH_MS) completeBrush();
   }
-  function cancelBrush() { stopTimers(); }
+  function cancelBrush() { stopTimers(); clearTimeout(brush.finishTimer); }
   $("btn-stop").addEventListener("click", function () { cancelBrush(); go("home"); });
 
   document.addEventListener("visibilitychange", function () {
@@ -255,32 +377,34 @@
     sound.fanfare();
     var res = L.recordBrush(state, brush.startTs, now(), Math.random);
     save();
-    if (res.kind === "evening-capture") showCapture(res);
-    else showResult(res);
+    $("zone-text").textContent = "完成了！";
+    $("brush-bubble").textContent = "刷得真好！";
+    $("btn-stop").hidden = true;
+    $("screen-brush").classList.add("finished");
+    if (res.kind === "capture") {
+      // 卡片完全揭開，停一下讓她看清楚，然後播放捕捉動畫
+      brush.finishTimer = setTimeout(function () { showCapture(res, { revealed: true }); }, 1400);
+    } else {
+      brush.finishTimer = setTimeout(function () { showResult(res); }, 500);
+    }
   }
 
   // ---------- 結果 ----------
   function showResult(res) {
     var title = "刷得真棒！", msg = "", emoji = "🎉";
     switch (res.kind) {
-      case "morning":
-        title = "早上完成！";
-        msg = res.allDone ? "你已經集齊所有卡片了，繼續保持好習慣！" : "還差晚上一次就能捕捉萌可！";
-        emoji = "☀️"; break;
-      case "morning-again":
-        title = "刷得真乾淨！"; msg = "今天早上已經完成了，再刷一次也很棒！"; emoji = "✨"; break;
-      case "evening-no-morning":
-        title = "晚上完成！";
-        msg = "今天早上沒有刷牙，所以今天不能捕捉萌可。明天早上和晚上都刷牙，就能捕捉萌可了！";
-        emoji = "🌙"; break;
-      case "evening-already-captured":
-      case "evening-again":
-        title = "刷得真乾淨！"; msg = "今天已經捕捉過萌可了，明天再來吧！"; emoji = "✨"; break;
-      case "evening-all-done":
-        title = "晚上完成！"; msg = "你已經集齊所有卡片了，繼續保持好習慣！"; emoji = "🌙"; break;
+      case "again":
+        title = "刷得真乾淨！";
+        msg = res.slot === "morning" ? "今天早上已經得到卡片了，再刷一次也很棒！晚上五點後刷牙，可以再得到一張。"
+                                     : "今天晚上已經得到卡片了，再刷一次也很棒！明天早上再來吧！";
+        emoji = "✨"; break;
+      case "all-done":
+        title = res.slot === "morning" ? "早上完成！" : "晚上完成！";
+        msg = "你已經集齊所有卡片了，繼續保持好習慣！";
+        emoji = res.slot === "morning" ? "☀️" : "🌙"; break;
       case "outside":
         title = "刷得真棒！";
-        msg = "不過現在不是刷牙時段，這次不會計算。早上四點至中午十二點、下午五點以後刷牙才會計算。";
+        msg = "不過現在不是刷牙時段，這次不會得到卡片。早上四點至中午十二點、下午五點至凌晨四點刷牙，每次都能得到一張卡片。";
         emoji = "👍"; break;
     }
     $("result-emoji").textContent = emoji;
@@ -307,12 +431,18 @@
       box.appendChild(s);
     }
   }
-  function showCapture(res) {
+  var captureQueue = [];
+  function showCapture(res, opts) {
+    opts = opts || {};
     var item = res.item;
     captureTimers.forEach(clearTimeout); captureTimers = [];
-    pendingCelebrate = !!res.seasonComplete;
+    pendingCelebrate = pendingCelebrate || !!res.seasonComplete;
     var card = $("flip-card");
-    card.classList.remove("go", "revealed");
+    card.classList.remove("go", "revealed", "instant", "popin");
+    card.classList.toggle("wide", item.type === "still");
+    var note = res.migrated ? "新規則：每次刷牙都能得到一張卡片！今天" + (res.slot === "morning" ? "早上" : "晚上") + "的刷牙補送你這張卡片。" : "";
+    $("capture-note").textContent = note;
+    $("capture-note").hidden = !note;
     $("capture-info").classList.remove("show");
     $("capture-title").textContent = item.type === "momoke" ? "萌可出現了！" : "新卡片出現了！";
     var front = $("capture-front");
@@ -324,25 +454,43 @@
     $("capture-name").classList.toggle("long", item.name.length > 6);
     $("capture-blurb").textContent = item.blurb || "";
     $("capture-blurb").hidden = !item.blurb;
-    $("btn-capture-done").textContent = pendingCelebrate ? "太棒了！" : "放進畫冊";
+    $("capture-intro").textContent = item.intro || "";
+    $("capture-intro").hidden = !item.intro;
+    $("btn-capture-done").textContent = captureQueue.length ? "下一張" : (pendingCelebrate ? "太棒了！" : "放進畫冊");
     makeSparkles($("sparkles"), 22);
     go("capture");
     void card.offsetWidth;
-    card.classList.add("go");
-    captureTimers.push(setTimeout(function () {
+    function revealNow() {
       card.classList.remove("go");
       card.classList.add("revealed");
       var b = el("div", "burst"); $("screen-capture").appendChild(b);
       setTimeout(function () { b.remove(); }, 1100);
       sound.sparkle();
       $("capture-title").textContent = item.type === "momoke" ? "成功捕捉萌可！" : "獲得新卡片！";
-    }, 1900));
-    captureTimers.push(setTimeout(function () { $("capture-info").classList.add("show"); }, 2800));
+    }
+    if (opts.revealed) {
+      // 刷牙時已經揭開了：卡片直接以正面出現
+      card.classList.add("instant", "revealed", "popin");
+      captureTimers.push(setTimeout(revealNow, 350));
+      captureTimers.push(setTimeout(function () { $("capture-info").classList.add("show"); }, 1100));
+    } else {
+      card.classList.add("go");
+      captureTimers.push(setTimeout(revealNow, 1900));
+      captureTimers.push(setTimeout(function () { $("capture-info").classList.add("show"); }, 2800));
+    }
   }
   $("btn-capture-done").addEventListener("click", function () {
+    if (captureQueue.length) { showCapture(captureQueue.shift()); return; }
     if (pendingCelebrate) { pendingCelebrate = false; showCelebrate(); }
     else go("home");
   });
+  /** 轉換舊資料 / 匯入時補發的卡片：逐張播放捕捉動畫 */
+  function playGrants(list) {
+    if (!list || !list.length) return false;
+    captureQueue = list.slice(1);
+    showCapture(list[0]);
+    return true;
+  }
   function showCelebrate() {
     var s1 = L.season("s1"), s2 = L.season("s2");
     $("celebrate-title").textContent = s1.completeTitle || "恭喜集齊第一季！";
@@ -413,6 +561,8 @@
     $("viewer-name").textContent = it.name;
     $("viewer-name").classList.toggle("long", it.name.length > 6);
     $("viewer-blurb").textContent = it.blurb || "";
+    $("viewer-intro").textContent = it.intro || "";
+    $("viewer-intro").hidden = !it.intro;
     $("viewer-count").textContent = (viewer.idx + 1) + " / " + viewer.list.length;
     $("viewer-prev").disabled = viewer.idx <= 0;
     $("viewer-next").disabled = viewer.idx >= viewer.list.length - 1;
@@ -465,7 +615,7 @@
     var first = new Date(y, m, 1).getDay();
     var days = new Date(y, m + 1, 0).getDate();
     for (var i = 0; i < first; i++) grid.appendChild(el("div", "cal-day empty"));
-    var caps = 0, both = 0;
+    var caps = 0, brushed = 0;
     for (var d = 1; d <= days; d++) {
       var key = L.ymd(new Date(y, m, d));
       var rec = state.days[key] || {};
@@ -473,14 +623,15 @@
       c.setAttribute("data-day", key);
       if (key === todayKey) c.classList.add("today");
       if (key > todayKey) c.classList.add("future");
-      if (rec.cap) { c.classList.add("captured"); caps++; }
-      if (rec.m && rec.e) both++;
+      var nCards = L.cardsOnDay(rec);
+      if (nCards) { c.classList.add("captured"); caps += nCards; }
+      if (rec.m || rec.e) brushed++;
       c.appendChild(el("span", "dnum", String(d)));
       c.appendChild(el("span", "marks", (rec.m ? "☀️" : "") + (rec.e ? "🌙" : "")));
-      if (rec.cap) c.appendChild(el("span", "star", "⭐"));
+      if (nCards) c.appendChild(el("span", "star", nCards === 2 ? "⭐⭐" : "⭐"));
       grid.appendChild(c);
     }
-    $("cal-summary").textContent = caps ? "這個月捕捉了 " + caps + " 張卡片！" : (both ? "這個月有 " + both + " 天早晚都刷牙！" : "每天早晚刷牙，就能得到星星！");
+    $("cal-summary").textContent = caps ? "這個月得到了 " + caps + " 張卡片！" : (brushed ? "這個月有 " + brushed + " 天刷牙！" : "早上和晚上刷牙，每次都能得到一顆星星！");
   }
   $("cal-prev").addEventListener("click", function () { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1); renderCalendar(); });
   $("cal-next").addEventListener("click", function () { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1); renderCalendar(); });
@@ -498,12 +649,12 @@
   })();
   function openParent() {
     var days = Object.keys(state.days).filter(function (k) { var d = state.days[k]; return d.m || d.e; }).length;
-    $("parent-info").textContent = "已收集 " + state.collected.length + " 張卡片，共有 " + days + " 天的刷牙紀錄。";
+    $("parent-info").textContent = "已收集 " + L.collectedIn(state, "s1").length + " / " + s1Total() + " 張卡片，共有 " + days + " 天的刷牙紀錄。";
     $("parent").hidden = false;
   }
   $("btn-parent-close").addEventListener("click", function () { $("parent").hidden = true; });
   $("btn-export").addEventListener("click", function () {
-    var payload = { app: "momoke-brush", version: 1, exportedAt: new Date(now()).toISOString(), state: state };
+    var payload = { app: "momoke-brush", version: 2, exportedAt: new Date(now()).toISOString(), state: state };
     var json = JSON.stringify(payload, null, 2);
     var name = "萌可刷牙備份-" + L.dayKey(now()) + ".json";
     var blob = new Blob([json], { type: "application/json" });
@@ -530,14 +681,16 @@
     if (!f) return;
     var r = new FileReader();
     r.onload = function () {
-      var s = null;
-      try { var obj = JSON.parse(r.result); s = L.normalizeState(obj && obj.state ? obj.state : obj); } catch (e) { s = null; }
-      if (!s) { alert("備份檔案格式不正確，無法匯入。"); return; }
+      var m = null;
+      // 新舊格式的備份都可以匯入（舊格式會自動轉換）
+      try { var obj = JSON.parse(r.result); m = L.migrateState(obj && obj.state ? obj.state : obj, now(), Math.random); } catch (e) { m = null; }
+      if (!m) { alert("備份檔案格式不正確，無法匯入。"); return; }
+      var s = m.state;
       if (!confirm("匯入後會取代目前的資料（備份內有 " + s.collected.length + " 張卡片），確定嗎？")) return;
       state = s; save();
       $("parent").hidden = true;
       alert("匯入完成！");
-      go("home");
+      if (!playGrants(m.granted)) go("home");
     };
     r.readAsText(f);
   });
@@ -551,9 +704,10 @@
 
   // ---------- 啟動 ----------
   renderHome();
+  playGrants(migratedGrants);
   setInterval(function () { if (current === "home" && document.visibilityState === "visible") renderHome(); }, 60000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
   }
-  if (TEST) window.__momoke = { state: function () { return state; }, logic: L, go: go };
+  if (TEST) window.__momoke = { state: function () { return state; }, logic: L, go: go, elapsed: function () { return brush.running ? elapsed() : null; } };
 })();

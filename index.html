@@ -31,14 +31,14 @@
     <div class="status-card">
       <div class="today-label" id="today-label"></div>
       <div class="slots">
-        <div class="slot" id="slot-m"><span class="slot-icon">☀️</span><span class="slot-name">早上</span><span class="slot-mark">○</span></div>
-        <div class="slot" id="slot-e"><span class="slot-icon">🌙</span><span class="slot-name">晚上</span><span class="slot-mark">○</span></div>
+        <div class="slot" id="slot-m"><span class="slot-icon">☀️</span><span class="slot-name">早上</span><span class="slot-mark">○</span><span class="slot-sub"></span></div>
+        <div class="slot" id="slot-e"><span class="slot-icon">🌙</span><span class="slot-name">晚上</span><span class="slot-mark">○</span><span class="slot-sub"></span></div>
       </div>
       <p class="hint" id="home-hint"></p>
     </div>
     <button class="collect-bar" id="home-collect" type="button">
       <span class="collect-label">已收集</span>
-      <span class="collect-count" id="home-count">0 / 39</span>
+      <span class="collect-count" id="home-count">0 / 81</span>
       <span class="collect-track"><i id="home-bar"></i></span>
     </button>
     <nav class="big-buttons">
@@ -50,31 +50,49 @@
 
   <!-- 刷牙中 -->
   <section id="screen-brush" class="screen" aria-label="刷牙中">
-    <div class="brush-top">
-      <div class="brush-buddy"><img src="img/s1/01_aixin.jpg" alt="" draggable="false"><span class="bubble" id="brush-bubble">加油！</span></div>
-    </div>
-    <div class="ring-wrap">
-      <svg class="ring" viewBox="0 0 220 220" aria-hidden="true">
-        <defs>
-          <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#ff7fbf"/>
-            <stop offset="100%" stop-color="#a77bff"/>
-          </linearGradient>
-        </defs>
-        <circle class="ring-bg" cx="110" cy="110" r="96"/>
-        <circle class="ring-fg" id="ring-fg" cx="110" cy="110" r="96"/>
-      </svg>
-      <div class="ring-center">
-        <div class="time" id="brush-time">2:00</div>
-        <div class="paused" id="brush-paused" hidden>暫停中</div>
+    <div class="brush-head">
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 220 220" aria-hidden="true">
+          <defs>
+            <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ff7fbf"/>
+              <stop offset="100%" stop-color="#a77bff"/>
+            </linearGradient>
+          </defs>
+          <circle class="ring-bg" cx="110" cy="110" r="96"/>
+          <circle class="ring-fg" id="ring-fg" cx="110" cy="110" r="96"/>
+        </svg>
+        <div class="ring-center">
+          <div class="time" id="brush-time">2:00</div>
+          <div class="paused" id="brush-paused" hidden>暫停中</div>
+        </div>
+      </div>
+      <div class="brush-prompt">
+        <p class="zone-text" id="zone-text">請刷上排左邊</p>
+        <span class="bubble" id="brush-bubble">加油！</span>
       </div>
     </div>
-    <p class="zone-text" id="zone-text">請刷上排左邊</p>
+    <p class="brush-caption" id="brush-caption"></p>
+    <div class="stage" id="brush-stage">
+      <!-- 這次會得到的卡片：蓋著「？」，每 30 秒揭開四分之一 -->
+      <div class="reveal" id="reveal" data-revealed="0" hidden>
+        <div class="reveal-img" id="reveal-img"></div>
+        <div class="cover" data-q="0"><div class="cover-in"><span class="cover-q">？</span></div></div>
+        <div class="cover" data-q="1"><div class="cover-in"><span class="cover-q">？</span></div></div>
+        <div class="cover" data-q="2"><div class="cover-in"><span class="cover-q">？</span></div></div>
+        <div class="cover" data-q="3"><div class="cover-in"><span class="cover-q">？</span></div></div>
+      </div>
+      <!-- 不會得到卡片時：播放已收集的卡片 -->
+      <div class="slideshow" id="slideshow" hidden>
+        <div class="slide-frame" id="slide-frame"></div>
+        <div class="slide-name" id="slide-name"></div>
+      </div>
+    </div>
     <div class="teeth" aria-hidden="true">
-      <div class="tq" data-q="0">上排<br>左邊</div>
-      <div class="tq" data-q="1">上排<br>右邊</div>
-      <div class="tq" data-q="2">下排<br>左邊</div>
-      <div class="tq" data-q="3">下排<br>右邊</div>
+      <div class="tq" data-q="0">上排左邊</div>
+      <div class="tq" data-q="1">上排右邊</div>
+      <div class="tq" data-q="2">下排左邊</div>
+      <div class="tq" data-q="3">下排右邊</div>
     </div>
     <button class="btn btn-stop" id="btn-stop" type="button">停止</button>
   </section>
@@ -92,6 +110,7 @@
   <section id="screen-capture" class="screen" aria-label="捕捉萌可">
     <div class="sparkles" id="sparkles" aria-hidden="true"></div>
     <h2 class="capture-title" id="capture-title">萌可出現了！</h2>
+    <p class="capture-note" id="capture-note" hidden></p>
     <div class="flip-card" id="flip-card">
       <div class="flip-inner">
         <div class="flip-face flip-back"><span class="heart">💗</span><span class="q">？</span></div>
@@ -102,6 +121,7 @@
       <div class="capture-number" id="capture-number"></div>
       <div class="card-name" id="capture-name"></div>
       <p class="card-blurb" id="capture-blurb"></p>
+      <p class="card-intro" id="capture-intro" hidden></p>
       <button class="btn btn-pink" id="btn-capture-done" type="button">放進畫冊</button>
     </div>
   </section>
@@ -114,7 +134,7 @@
       <span class="head-spacer"></span>
     </header>
     <div class="season-bar">
-      <span class="season-chip on" id="album-season">第一季 0 / 39</span>
+      <span class="season-chip on" id="album-season">第一季 0 / 81</span>
       <span class="season-chip locked">🔒 第二季 敬請期待</span>
     </div>
     <div class="tabs" role="tablist">
@@ -140,7 +160,7 @@
     <div class="cal-week"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
     <div class="cal-grid" id="cal-grid"></div>
     <p class="cal-summary" id="cal-summary"></p>
-    <div class="cal-legend"><span>☀️ 早上</span><span>🌙 晚上</span><span>⭐ 捕捉卡片</span></div>
+    <div class="cal-legend"><span>☀️ 早上刷牙</span><span>🌙 晚上刷牙</span><span>⭐ 得到一張卡片</span></div>
   </section>
 
   <!-- 集齊 -->
@@ -148,7 +168,7 @@
     <div class="sparkles on" aria-hidden="true" id="celebrate-sparkles"></div>
     <div class="celebrate-emoji">🏆</div>
     <h2 class="celebrate-title" id="celebrate-title">恭喜集齊第一季！</h2>
-    <p class="result-msg">你每天早晚都認真刷牙，<br>收集了全部卡片！</p>
+    <p class="result-msg">你每天都認真刷牙，<br>收集了全部卡片！</p>
     <div class="locked-card"><span class="lock">🔒</span><span id="celebrate-next">第二季 敬請期待</span></div>
     <button class="btn btn-purple" data-go="album" type="button">看看我的畫冊</button>
     <button class="btn btn-pink" data-go="home" type="button">回到主頁</button>
@@ -162,6 +182,7 @@
       <div class="viewer-type" id="viewer-type"></div>
       <div class="card-name" id="viewer-name"></div>
       <p class="card-blurb" id="viewer-blurb"></p>
+      <p class="card-intro" id="viewer-intro" hidden></p>
     </div>
     <div class="viewer-nav">
       <button class="round-btn big" id="viewer-prev" type="button" aria-label="上一張">‹</button>
@@ -180,7 +201,7 @@
       <input type="file" id="import-file" accept="application/json,.json" hidden>
       <button class="btn btn-small btn-danger" id="btn-reset" type="button">重設所有資料</button>
       <button class="btn btn-small btn-ghost" id="btn-parent-close" type="button">關閉</button>
-      <p class="parent-rules">規則：每天以凌晨四點為分界。早上（四點至中午十二點）和晚上（下午五點至凌晨四點）各完整刷牙兩分鐘，就能捕捉一張卡片，每天最多一張。</p>
+      <p class="parent-rules">規則：每天以凌晨四點為分界。在早上時段（四點至中午十二點）或晚上時段（下午五點至凌晨四點）完整刷牙兩分鐘，每次都能得到一張卡片；每個時段最多一張，每天最多兩張。漏刷只會少一張卡片，已收集的卡片永遠保留。在時段以外刷牙，或同一時段再刷一次，會計時和稱讚，但不會得到卡片。刷牙開始時就會決定這次的卡片，中途停止的話，下次刷牙仍是同一張。第一季共 81 張，每天兩張約 41 天集齊。</p>
     </div>
   </div>
 

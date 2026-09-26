@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resize/compress the real Season 1 萌可 images and build app icons.
 Only resizes, re-encodes and pads to square with white. No other edits.
-Usage: /tmp/imgenv/bin/python tools/prepare_images.py
+Usage: /workspace/.pwvenv/bin/python tools/prepare_images.py   (needs Pillow)
 """
 import json, os
 from PIL import Image
@@ -40,9 +40,9 @@ for size, name in [(180, "apple-touch-icon.png"), (192, "icon-192.png"), (512, "
 
 
 # ---------------------------------------------------------------------------
-# Season 1 princesses (5) and episode stills (10) — added 2026-09-26.
+# Season 1 princesses (5) and episode stills (52, v2) — added 2026-09-26.
 # Princess: flatten any transparency onto white, pad to square with white, ~600px.
-# Stills: resize to 800px wide (landscape kept), JPEG q85. No other edits.
+# Stills: fit inside 800×450 (aspect kept), JPEG q85. No other edits.
 # ---------------------------------------------------------------------------
 PRINCESS_SRC = "/workspace/momoke/images/s1_princess"
 PRINCESS = [  # (source file, output file) — alt_* files are intentionally not used
@@ -52,19 +52,11 @@ PRINCESS = [  # (source file, output file) — alt_* files are intentionally not
     ("04_xiwang_gongzhu.png", "04_xiwang.jpg"),   # 希望公主 s1-p-04
     ("05_yinyue_gongzhu.png", "05_yinyue.jpg"),   # 音樂公主 s1-p-05
 ]
-STILLS_SRC = "/workspace/momoke/images/s1_stills"
-STILLS = [  # slot order = episode order
-    ("01_ep01_litv.jpg", "s1-still-01.jpg"),       # 第1集
-    ("02_ep02_tx.jpg", "s1-still-02.jpg"),         # 第2集
-    ("03_ep03_litv.jpg", "s1-still-03.jpg"),       # 第3集
-    ("backup_02_ep07_tx.jpg", "s1-still-04.jpg"),  # 第7集（取代 04_ep05_litv.jpg）
-    ("05_ep07_iq.jpg", "s1-still-05.jpg"),         # 第7集
-    ("06_ep13_litv.jpg", "s1-still-06.jpg"),       # 第13集
-    ("07_ep14_litv.jpg", "s1-still-07.jpg"),       # 第14集
-    ("08_ep16_tx.jpg", "s1-still-08.jpg"),         # 第16集
-    ("09_ep20_litv.jpg", "s1-still-09.jpg"),       # 第20集
-    ("10_ep23_tx.jpg", "s1-still-10.jpg"),         # 第23集
-]
+# Stills v2 (2026-09-26): 52 stills, 2 per episode (ep01_a … ep26_b), from s1_stills_v2/manifest.json.
+# Output keeps the source file name: img/stills/ep01_a.jpg … (the old s1_stills / s1-still-XX files are no longer used).
+STILLS_SRC = "/workspace/momoke/images/s1_stills_v2"
+STILLS = [(m["file"], m["file"]) for m in json.load(open(os.path.join(STILLS_SRC, "manifest.json"), encoding="utf-8"))]
+STILL_W, STILL_H = 800, 450  # fit inside 800×450, keep aspect ratio (no crop, no padding)
 
 def flatten_white(im):
     if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
@@ -85,9 +77,11 @@ for src, out in PRINCESS:
 
 sdst = os.path.join(APP, "img", "stills")
 os.makedirs(sdst, exist_ok=True)
+for f in os.listdir(sdst):  # remove files that are no longer in the manifest (e.g. old s1-still-XX.jpg)
+    if f not in {o for _, o in STILLS}:
+        os.remove(os.path.join(sdst, f)); print("removed old", f)
 for src, out in STILLS:
     im = flatten_white(Image.open(os.path.join(STILLS_SRC, src)))
-    if im.width > 800:
-        im = im.resize((800, round(im.height * 800 / im.width)), Image.LANCZOS)
+    im.thumbnail((STILL_W, STILL_H), Image.LANCZOS)
     im.save(os.path.join(sdst, out), "JPEG", quality=85, optimize=True, progressive=True)
     print(src, "->", out, im.size)

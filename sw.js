@@ -1,7 +1,7 @@
 /* 萌可刷牙 — Service Worker（離線快取）
- * 新增/更換任何檔案後，把 VERSION 加一（例如 "v1" → "v2"），已安裝的 App 會在下次開啟時更新。
+ * 新增/更換任何檔案後，把 VERSION 加一（例如 "v3" → "v4"），已安裝的 App 會在下次開啟時更新。
  */
-var VERSION = "v2";
+var VERSION = "v3";
 var CACHE = "momoke-brush-" + VERSION;
 importScripts("data.js");
 
