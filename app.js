@@ -60,11 +60,20 @@
   function save() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
   }
+  // 家長設定（另存一個鍵，不改動進度資料的格式）
+  var SETTINGS_KEY = "momoke-brush-settings";
+  var settings = (function () {
+    try { return L.normalizeSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null")); } catch (e) { return L.normalizeSettings(null); }
+  })();
+  function saveSettings() {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* ignore */ }
+  }
 
   // ---------- 畫面切換 ----------
   var current = "home";
   function go(name) {
     if (name !== "brush" && brush.running) cancelBrush();
+    if (name !== "brush" && current === "brush") fx.stop();
     document.querySelectorAll(".screen").forEach(function (s) { s.classList.remove("active"); });
     $("screen-" + name).classList.add("active");
     current = name;
@@ -182,14 +191,100 @@
       o.start(t0); o.stop(t0 + dur + 0.05);
     }
     return {
+      context: get,
       unlock: function () { var c = get(); if (c) tone(1, 0, 0.01, "sine", 0.0002); },
-      chime: function () { tone(1046.5, 0, 0.5, "triangle", 0.16); tone(1568, 0.14, 0.7, "triangle", 0.13); },
+      // 播放音樂時提示音大聲一點（同時音樂會暫時降低音量）
+      chime: function (loud) { var k = loud ? 1.7 : 1; tone(1046.5, 0, 0.5, "triangle", 0.16 * k); tone(1568, 0.14, 0.7, "triangle", 0.13 * k); },
       start: function () { tone(784, 0, 0.25, "triangle", 0.14); tone(1046.5, 0.12, 0.4, "triangle", 0.14); },
       fanfare: function () {
         [523.25, 659.25, 783.99, 1046.5].forEach(function (f, i) { tone(f, i * 0.13, 0.35, "square", 0.07); tone(f, i * 0.13, 0.4, "triangle", 0.12); });
         [523.25, 659.25, 783.99, 1046.5].forEach(function (f) { tone(f, 0.6, 0.9, "triangle", 0.09); });
       },
       sparkle: function () { [1318.5, 1568, 2093, 2637, 3136].forEach(function (f, i) { tone(f, i * 0.07, 0.3, "sine", 0.08); }); }
+    };
+  })();
+
+  // ---------- 刷牙音樂（<audio> 循環播放；有 Web Audio 時經 GainNode 控制音量和淡出） ----------
+  var music = (function () {
+    var BASE = 0.55;       // 音樂音量（比滿音量低，讓提示音聽得清楚）
+    var FADE_MS = 3000;    // 最後 3 秒淡出，2:00 剛好靜音
+    var DUCK = 0.45, DUCK_MS = 1400; // 提示音響起時音樂暫時降低
+    var el = null, gain = null, playing = false, duckAt = -1e9, vol = -1, song = null;
+    function ensure(sg) {
+      if (!el) {
+        el = document.createElement("audio");
+        el.id = "brush-music";
+        el.loop = true;
+        el.preload = "auto";
+        el.setAttribute("playsinline", "");
+        el.setAttribute("webkit-playsinline", "");
+        document.body.appendChild(el);
+      }
+      if (el.getAttribute("src") !== sg.src) el.setAttribute("src", sg.src);
+      if (!gain) {
+        // iOS 不理會 audio.volume，所以用 Web Audio 的 GainNode 控制音量；不支援時改用 volume（iOS 上 2:00 直接停止）
+        var c = sound.context();
+        if (c && c.createMediaElementSource && c.createGain) {
+          try {
+            var src = c.createMediaElementSource(el);
+            gain = c.createGain();
+            gain.gain.value = 0;
+            src.connect(gain); gain.connect(c.destination);
+          } catch (e) { gain = null; }
+        }
+      }
+    }
+    function level(e) {
+      var f = Math.max(0, Math.min(1, (L.BRUSH_MS - e) / FADE_MS));
+      var d = (performance.now() - duckAt) < DUCK_MS ? DUCK : 1;
+      return BASE * f * d;
+    }
+    function apply(v, now) {
+      if (!el) return;
+      if (gain) {
+        var c = gain.context, p = gain.gain, t = c.currentTime;
+        if (now) { p.cancelScheduledValues(t); p.setValueAtTime(v, t); }
+        else if (Math.abs(v - vol) > 0.002) { p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(v, t + 0.08); }
+      } else if (now || Math.abs(v - vol) > 0.002) { try { el.volume = v; } catch (e) { /* ignore */ } }
+      vol = v;
+    }
+    function resumeCtx() { var c = gain && gain.context; if (c && c.state !== "running") { try { c.resume(); } catch (e) { /* ignore */ } } }
+    function play() { var p = el.play(); if (p && p.catch) p.catch(function () { /* 被瀏覽器拒絕時保持安靜 */ }); }
+    return {
+      /** 必須在「開始刷牙」的點擊裡呼叫（iOS 需要使用者手勢） */
+      start: function (sg) {
+        playing = false;
+        song = sg;
+        if (!settings.music || !sg) { if (el) el.pause(); return; }
+        ensure(sg);
+        // iOS 17+：以「播放」類型輸出，靜音鍵開啟時仍會發聲（<audio> 播放本來就不受靜音鍵影響）
+        try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) { /* ignore */ }
+        resumeCtx();
+        try { el.currentTime = 0; } catch (e) { /* ignore */ }
+        playing = true;
+        duckAt = -1e9;
+        apply(level(0), true);
+        play();
+      },
+      pause: function () { if (playing && el) el.pause(); },
+      resume: function () { if (playing && el) { resumeCtx(); if (el.paused) play(); } },
+      /** 停止並回到開頭 */
+      stop: function () {
+        if (!el) return;
+        playing = false;
+        el.pause();
+        try { el.currentTime = 0; } catch (e) { /* ignore */ }
+        apply(0, true);
+      },
+      update: function (e) { if (playing) apply(level(e)); },
+      duck: function () { if (playing) duckAt = performance.now(); },
+      active: function () { return playing; },
+      /** 測試用 */
+      info: function () {
+        return el ? { exists: true, src: el.getAttribute("src"), paused: el.paused, currentTime: el.currentTime, duration: el.duration,
+          loop: el.loop, playing: playing, target: vol, gain: gain ? gain.gain.value : el.volume, webAudio: !!gain,
+          ctx: gain ? gain.context.state : null, song: song && song.title } : { exists: false, playing: false, song: song && song.title };
+      }
     };
   })();
 
@@ -211,7 +306,10 @@
   var RING_C = 2 * Math.PI * 96;
   $("ring-fg").style.strokeDasharray = RING_C;
   var SLIDE_MS = 10000; // 幻燈片：每 10 秒（刷牙時間）換一張
-  var brush = { running: false, startTs: 0, acc: 0, seg: null, zone: -1, raf: 0, iv: 0, plan: null, revealed: -1, slides: [], slide: -1, finishTimer: 0 };
+  var brush = { running: false, startTs: 0, acc: 0, seg: null, zone: -1, raf: 0, iv: 0, plan: null, slides: [], slide: -1, finishTimer: 0, timeText: "" };
+  var reducedMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var fx = window.MomokeBrushFx.create({ fx: $("brush-fx"), reduced: reducedMotion });
+  window.addEventListener("resize", function () { fx.invalidate(); });
 
   function elapsed() {
     return brush.acc + (brush.seg != null ? (Date.now() - brush.seg) * SPEED : 0);
@@ -226,15 +324,19 @@
     brush.acc = 0;
     brush.seg = Date.now();
     brush.zone = -1;
-    brush.revealed = -1;
     brush.slide = -1;
+    brush.timeText = "";
     document.querySelectorAll(".tq").forEach(function (q) { q.classList.remove("active", "done"); });
     $("brush-paused").hidden = true;
     $("btn-stop").hidden = false;
     $("screen-brush").classList.remove("finished");
     setupStage(brush.plan);
     go("brush");
+    // 泡泡層在第一次畫面更新前就畫好（卡片不會先露出來）
+    fx.start(brush.plan.earn ? { target: $("reveal"), foam: $("foam") } : { target: $("slide-frame"), foam: null });
+    fx.render(0, performance.now());
     sound.start();
+    music.start(L.songFor(state));
     requestWake();
     tick();
     clearInterval(brush.iv);
@@ -250,15 +352,13 @@
       reveal.hidden = false; show.hidden = true;
       reveal.classList.toggle("wide", item.type === "still");
       reveal.setAttribute("data-id", item.id);
-      reveal.setAttribute("data-revealed", "0");
       var box = $("reveal-img");
       box.innerHTML = "";
       var v = cardVisual(item);
       if (v.tagName === "IMG") v.alt = ""; // 未揭曉前不讀出名字
       box.appendChild(v);
-      reveal.querySelectorAll(".cover").forEach(function (c) { c.classList.remove("open", "active"); });
       stage.setAttribute("data-mode", "reveal");
-      cap.textContent = "刷完兩分鐘，就能得到這張卡片！";
+      cap.textContent = "把泡泡刷走，就能得到這張卡片！";
     } else {
       reveal.hidden = true; show.hidden = false;
       stage.setAttribute("data-mode", "slideshow");
@@ -293,26 +393,15 @@
     f.appendChild(cardVisual(item));
     void f.offsetWidth; f.classList.add("in");
     $("slide-name").textContent = item.name;
-  }
-  function updateReveal(n, z, done) {
-    var reveal = $("reveal");
-    if (n !== brush.revealed) {
-      var prev = brush.revealed;
-      brush.revealed = n;
-      reveal.setAttribute("data-revealed", String(n));
-      reveal.querySelectorAll(".cover").forEach(function (c) {
-        var q = Number(c.getAttribute("data-q"));
-        c.classList.toggle("open", q < n);
-      });
-      if (prev >= 0 && n > prev) { sound.sparkle(); }
-    }
-    reveal.querySelectorAll(".cover").forEach(function (c) {
-      c.classList.toggle("active", !done && Number(c.getAttribute("data-q")) === z);
-    });
+    fx.invalidate();
   }
   function loop() {
     cancelAnimationFrame(brush.raf);
-    brush.raf = requestAnimationFrame(function () { if (brush.running) { tick(); loop(); } });
+    brush.raf = requestAnimationFrame(function (t) {
+      if (!brush.running) return;
+      tick();
+      if (brush.running) { fx.render(Math.min(elapsed(), L.BRUSH_MS), t); loop(); }
+    });
   }
   function stopTimers() {
     brush.running = false;
@@ -324,11 +413,13 @@
     if (!brush.running) return;
     var e = Math.min(elapsed(), L.BRUSH_MS);
     var remain = Math.ceil((L.BRUSH_MS - e) / 1000);
-    $("brush-time").textContent = Math.floor(remain / 60) + ":" + ("0" + (remain % 60)).slice(-2);
+    var tt = Math.floor(remain / 60) + ":" + ("0" + (remain % 60)).slice(-2);
+    if (tt !== brush.timeText) { brush.timeText = tt; $("brush-time").textContent = tt; }
+    music.update(e);
     $("ring-fg").style.strokeDashoffset = RING_C * (1 - e / L.BRUSH_MS);
     var z = Math.min(3, Math.floor(e / L.ZONE_MS));
     if (z !== brush.zone && e < L.BRUSH_MS) {
-      if (brush.zone >= 0) sound.chime();
+      if (brush.zone >= 0) { sound.chime(music.active()); music.duck(); }
       brush.zone = z;
       var zt = $("zone-text");
       zt.textContent = "請刷" + ZONES[z];
@@ -340,16 +431,13 @@
         q.classList.toggle("done", i < z);
       });
     }
-    if (brush.plan && brush.plan.earn) {
-      // 每刷完一個位置（30 秒）揭開卡片的四分之一：上左、上右、下左、下右
-      updateReveal(Math.min(4, Math.floor(e / L.ZONE_MS)), z, e >= L.BRUSH_MS);
-    } else {
+    if (!brush.plan.earn) {
       var si = Math.floor(e / SLIDE_MS);
       if (si !== brush.slide && e < L.BRUSH_MS) { brush.slide = si; showSlide(si); }
     }
     if (e >= L.BRUSH_MS) completeBrush();
   }
-  function cancelBrush() { stopTimers(); clearTimeout(brush.finishTimer); }
+  function cancelBrush() { stopTimers(); clearTimeout(brush.finishTimer); music.stop(); fx.stop(); }
   $("btn-stop").addEventListener("click", function () { cancelBrush(); go("home"); });
 
   document.addEventListener("visibilitychange", function () {
@@ -358,10 +446,12 @@
         brush.acc = elapsed();
         brush.seg = null;
         $("brush-paused").hidden = false;
+        music.pause();
         releaseWake();
       } else {
         if (brush.seg == null) brush.seg = Date.now();
         $("brush-paused").hidden = true;
+        music.resume();
         requestWake();
         loop();
         tick();
@@ -371,16 +461,20 @@
     }
   });
 
+  // iOS 有時會在回到前景後暫停 AudioContext：刷牙時輕觸畫面就會恢復音樂
+  $("screen-brush").addEventListener("pointerdown", function () { if (brush.running) music.resume(); });
+
   function completeBrush() {
     stopTimers();
+    music.stop();      // 已在最後 3 秒淡出
+    fx.finish();       // 泡泡全部刷走 + 星星
     document.querySelectorAll(".tq").forEach(function (q) { q.classList.remove("active"); q.classList.add("done"); });
     sound.fanfare();
     var res = L.recordBrush(state, brush.startTs, now(), Math.random);
     save();
     $("zone-text").textContent = "完成了！";
     $("brush-bubble").textContent = "刷得真好！";
-    $("btn-stop").hidden = true;
-    $("screen-brush").classList.add("finished");
+    $("screen-brush").classList.add("finished"); // 停止按鈕以 visibility 隱藏，版面不會跳動
     if (res.kind === "capture") {
       // 卡片完全揭開，停一下讓她看清楚，然後播放捕捉動畫
       brush.finishTimer = setTimeout(function () { showCapture(res, { revealed: true }); }, 1400);
@@ -650,11 +744,24 @@
   function openParent() {
     var days = Object.keys(state.days).filter(function (k) { var d = state.days[k]; return d.m || d.e; }).length;
     $("parent-info").textContent = "已收集 " + L.collectedIn(state, "s1").length + " / " + s1Total() + " 張卡片，共有 " + days + " 天的刷牙紀錄。";
+    renderMusicToggle();
     $("parent").hidden = false;
   }
+  function renderMusicToggle() {
+    var on = settings.music, sg = L.songFor(state);
+    $("toggle-music").setAttribute("aria-checked", on ? "true" : "false");
+    $("toggle-music-text").textContent = on ? "開" : "關";
+    $("music-note").textContent = on ? "刷牙時會播放主題曲" + (sg && sg.title ? "《" + sg.title + "》" : "") + "，最後三秒慢慢變小聲。"
+                                     : "刷牙時不播放音樂（仍有提示音）。";
+  }
+  $("toggle-music").addEventListener("click", function () {
+    settings.music = !settings.music;
+    saveSettings();
+    renderMusicToggle();
+  });
   $("btn-parent-close").addEventListener("click", function () { $("parent").hidden = true; });
   $("btn-export").addEventListener("click", function () {
-    var payload = { app: "momoke-brush", version: 2, exportedAt: new Date(now()).toISOString(), state: state };
+    var payload = { app: "momoke-brush", version: 2, exportedAt: new Date(now()).toISOString(), state: state, settings: settings };
     var json = JSON.stringify(payload, null, 2);
     var name = "萌可刷牙備份-" + L.dayKey(now()) + ".json";
     var blob = new Blob([json], { type: "application/json" });
@@ -681,13 +788,15 @@
     if (!f) return;
     var r = new FileReader();
     r.onload = function () {
-      var m = null;
+      var m = null, obj = null;
       // 新舊格式的備份都可以匯入（舊格式會自動轉換）
-      try { var obj = JSON.parse(r.result); m = L.migrateState(obj && obj.state ? obj.state : obj, now(), Math.random); } catch (e) { m = null; }
+      try { obj = JSON.parse(r.result); m = L.migrateState(obj && obj.state ? obj.state : obj, now(), Math.random); } catch (e) { m = null; }
       if (!m) { alert("備份檔案格式不正確，無法匯入。"); return; }
       var s = m.state;
       if (!confirm("匯入後會取代目前的資料（備份內有 " + s.collected.length + " 張卡片），確定嗎？")) return;
       state = s; save();
+      // 備份內有家長設定（刷牙音樂）就一併還原；舊備份沒有設定則保持目前設定
+      if (obj && obj.settings && typeof obj.settings === "object") { settings = L.normalizeSettings(obj.settings); saveSettings(); }
       $("parent").hidden = true;
       alert("匯入完成！");
       if (!playGrants(m.granted)) go("home");
@@ -709,5 +818,6 @@
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
   }
-  if (TEST) window.__momoke = { state: function () { return state; }, logic: L, go: go, elapsed: function () { return brush.running ? elapsed() : null; } };
+  if (TEST) window.__momoke = { state: function () { return state; }, logic: L, go: go, elapsed: function () { return brush.running ? elapsed() : null; },
+    music: function () { return music.info(); }, settings: function () { return settings; }, foam: function () { return fx.coverage(); }, fx: function () { return fx.info(); } };
 })();

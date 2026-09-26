@@ -144,32 +144,16 @@ img { -webkit-user-drag: none; }
 .brush-caption { margin: 0; min-height: 1.4em; white-space: pre-line; font-size: 18px; font-weight: 800; color: var(--purple-d); text-align: center; line-height: 1.4; }
 
 /* 卡片舞台：固定高度，正方形卡片與 16:9 劇照都置中，不會令版面跳動 */
-.stage { width: 100%; height: var(--cardsz); display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; }
+.stage { position: relative; width: 100%; height: var(--cardsz); display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 auto; }
 .reveal { position: relative; width: var(--cardsz); aspect-ratio: 1; border-radius: 26px; overflow: hidden; border: 6px solid #fff; background: #fff;
   box-shadow: 0 12px 30px rgba(125,79,230,.3); }
 .reveal.wide { width: min(100%, 400px); aspect-ratio: 16 / 9; border-radius: 20px; }
 .reveal-img { position: absolute; inset: 0; }
 .reveal-img img { width: 100%; height: 100%; object-fit: contain; display: block; background: #fff; }
-.cover { position: absolute; width: 50%; height: 50%; overflow: hidden; z-index: 2;
-  transition: opacity .7s ease, transform .7s cubic-bezier(.3,1.4,.5,1); }
-.cover[data-q="0"] { left: 0; top: 0; transform-origin: 0 0; }
-.cover[data-q="1"] { right: 0; top: 0; transform-origin: 100% 0; }
-.cover[data-q="2"] { left: 0; bottom: 0; transform-origin: 0 100%; }
-.cover[data-q="3"] { right: 0; bottom: 0; transform-origin: 100% 100%; }
-/* 每一塊只顯示同一個大「？」的四分之一 */
-.cover-in { position: absolute; width: 200%; height: 200%; display: flex; align-items: center; justify-content: center;
-  background: repeating-linear-gradient(45deg, #ff8cc4 0 18px, #ff9fd0 18px 36px); }
-.cover[data-q="0"] .cover-in { left: 0; top: 0; }
-.cover[data-q="1"] .cover-in { left: -100%; top: 0; }
-.cover[data-q="2"] .cover-in { left: 0; top: -100%; }
-.cover[data-q="3"] .cover-in { left: -100%; top: -100%; }
-.cover-q { font-size: calc(var(--cardsz) * .62); font-weight: 900; color: #fff; line-height: 1; text-shadow: 0 6px 0 rgba(200,60,130,.25); }
-.reveal.wide .cover-q { font-size: 150px; }
-.cover::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.85); pointer-events: none; }
-.cover.active::before { content: ""; position: absolute; inset: 0; z-index: 1; background: rgba(255,255,255,.28); animation: shimmer 1.4s ease-in-out infinite; }
-@keyframes shimmer { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
-.cover.open { opacity: 0; transform: scale(1.25) rotate(8deg); pointer-events: none; }
-.cover[data-q="0"].open, .cover[data-q="2"].open { transform: scale(1.25) rotate(-8deg); }
+/* 泡泡層：蓋住整張卡片（canvas，由 brushfx.js 畫），牙刷經過的地方泡泡被刷走 */
+.foam { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; display: block; pointer-events: none; }
+/* 牙刷、小泡泡、星星：比卡片大一點（左右到螢幕邊，上下多 26px），不擋按鈕 */
+.brush-fx { position: absolute; left: -18px; top: -26px; width: calc(100% + 36px); height: calc(100% + 52px); z-index: 5; pointer-events: none; display: block; }
 #screen-brush.finished .reveal { animation: shine 1.2s ease; }
 @keyframes shine { 0% { transform: scale(1); } 40% { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(255,255,255,.9), 0 12px 30px rgba(125,79,230,.3); } 100% { transform: scale(1); } }
 
@@ -321,6 +305,15 @@ img { -webkit-user-drag: none; }
 .modal-box { width: 100%; max-width: 380px; background: #fff; border-radius: 26px; padding: 20px 18px; text-align: center; box-shadow: 0 16px 40px rgba(0,0,0,.2); }
 .modal-box h2 { margin: 0 0 6px; color: var(--purple-d); font-size: 26px; }
 .parent-info { font-size: 17px; color: var(--ink-soft); margin: 4px 0 10px; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 2px 2px; padding: 10px 14px; border-radius: 20px; background: #f6efff; }
+.setting-label { font-size: 21px; font-weight: 800; color: var(--ink); }
+.switch { position: relative; flex: 0 0 auto; width: 96px; height: 46px; border-radius: 23px; background: #d9cce8; transition: background .2s ease;
+  display: flex; align-items: center; justify-content: flex-start; padding: 0 14px 0 50px; }
+.switch-text { font-size: 18px; font-weight: 900; color: #fff; }
+.switch-knob { position: absolute; top: 4px; left: 4px; width: 38px; height: 38px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: left .2s ease; }
+.switch[aria-checked="true"] { background: linear-gradient(180deg, #ff8cc4, var(--pink)); padding: 0 50px 0 14px; justify-content: flex-start; }
+.switch[aria-checked="true"] .switch-knob { left: 54px; }
+.setting-note { font-size: 14px; color: var(--ink-soft); margin: 4px 4px 8px; text-align: left; line-height: 1.4; }
 .parent-rules { font-size: 14px; line-height: 1.5; color: var(--ink-soft); margin: 10px 0 0; text-align: left; }
 
 @media (max-height: 740px) {

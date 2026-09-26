@@ -319,4 +319,65 @@ console.log("✓ 日子與時段");
   eq(m6.granted.length, 0, "只補發今天");
   console.log("✓ 舊資料轉換（保留卡片與日曆、舊劇照對應、補發今天的卡、公主優先、無法對應時補發劇照）");
 }
+
+// ---- 刷牙動畫（brushfx.js）：泡泡按時間刷走，2:00 剛好全部刷走 ----
+{
+  const FX = require("../brushfx.js");
+  eq(FX.BRUSH_MS, L.BRUSH_MS, "動畫長度 = 刷牙 2 分鐘");
+  eq(FX.ZONE_MS, L.ZONE_MS, "每區 30 秒 = 刷牙提示");
+  // 覆蓋檢查：某時間 e 已刷走的點是否蓋住 (x, y)
+  function coveredAt(P, cnt, x, y) {
+    for (let z = 0; z < 4; z++) {
+      const st = P.zones[z].stamps;
+      for (let k = 0; k < cnt[z]; k++) {
+        const dx = st[2 * k] - x, dy = st[2 * k + 1] - y, r = FX.radius(P, z, k);
+        if (dx * dx + dy * dy <= r * r) return true;
+      }
+    }
+    return false;
+  }
+  for (const [w, h] of [[308, 308], [342, 187], [260, 260], [400, 225], [180, 180]]) {
+    const P = FX.plan(w, h);
+    const full = FX.counts(P, FX.BRUSH_MS);
+    let miss = 0;
+    for (let y = 0; y <= h; y += 2) for (let x = 0; x <= w; x += 2) if (!coveredAt(P, full, x, y)) miss++;
+    eq(miss, 0, `2:00 全部刷走（${w}×${h}）`);
+    // 每區在自己的 30 秒內刷完；之前完全未刷
+    for (let q = 0; q < 4; q++) {
+      const endQ = FX.counts(P, (q + 1) * FX.ZONE_MS - 1);
+      const Z = P.zones[q];
+      let m = 0;
+      for (let y = Z.y; y <= Z.y + Z.h; y += 3) for (let x = Z.x; x <= Z.x + Z.w; x += 3) if (!coveredAt(P, FX.counts(P, (q + 1) * FX.ZONE_MS), x, y)) m++;
+      eq(m, 0, `第 ${q + 1} 區在 ${(q + 1) * 30} 秒刷完（${w}×${h}）`);
+      eq(FX.counts(P, q * FX.ZONE_MS + 1)[q], 0, "每區開頭牙刷先移動，未開始刷");
+      ok(endQ[q] <= Z.n, "點數不超過");
+    }
+    // 單調：時間越後，刷走的點越多（每區都不會減少）
+    let prev = [0, 0, 0, 0];
+    for (let e = 0; e <= FX.BRUSH_MS; e += 250) {
+      const c = FX.counts(P, e);
+      for (let z = 0; z < 4; z++) ok(c[z] >= prev[z], "刷走的點只增不減");
+      prev = c;
+    }
+    assert.deepStrictEqual(FX.counts(P, 0), [0, 0, 0, 0], "開始時全部蓋住");
+    assert.deepStrictEqual(FX.counts(P, FX.BRUSH_MS + 5000), full, "超過 2:00 仍是全部刷走");
+  }
+  console.log("✓ 刷牙動畫：泡泡隨時間單調減少、四區跟提示同步、2:00 完全刷走（正方形卡和 16:9 劇照）");
+}
+
+// ---- 刷牙音樂、家長設定 ----
+{
+  const song = L.songFor(L.emptyState());
+  eq(song.src, "audio/s1_op.m4a"); eq(song.title, "捕萌少女"); eq(song.season, "s1");
+  ok(fs.existsSync(path.join(__dirname, "..", song.src)), "音樂檔存在");
+  // 集齊第一季（第二季未開放）仍播第一季的歌
+  const all = L.emptyState();
+  s1.forEach((it) => all.collected.push({ id: it.id, t: 0, d: null, s: null }));
+  eq(L.songFor(all).src, "audio/s1_op.m4a", "集齊後仍播第一季主題曲");
+  eq(DATA.seasons.find((x) => x.id === "s2").music, null, "第二季未有歌");
+  assert.deepStrictEqual(L.normalizeSettings(null), { music: true }, "預設開啟");
+  assert.deepStrictEqual(L.normalizeSettings({ music: false }), { music: false });
+  assert.deepStrictEqual(L.normalizeSettings({ music: "x" }), { music: true });
+  console.log("✓ 刷牙音樂：每季可各有主題曲（第一季《捕萌少女》），家長設定預設開啟");
+}
 console.log(`全部測試通過（${checks} 項斷言）`);

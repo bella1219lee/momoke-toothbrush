@@ -326,6 +326,32 @@
     return { state: out, granted: granted, notes: notes };
   }
 
+  /**
+   * 刷牙音樂：目前收集中的季度的主題曲；該季未有歌（或已集齊）時，用最近一個已開放而有歌的季度。
+   * 回傳 { src, type, title, duration, season } 或 null。
+   */
+  function songFor(state) {
+    var sid = currentSeasonId(state);
+    var best = null;
+    for (var i = 0; i < DATA.seasons.length; i++) {
+      var s = DATA.seasons[i];
+      if (!s.open) break;
+      if (s.music && s.music.op && s.music.op.src) best = { season: s.id, op: s.music.op };
+      if (s.id === sid) break;
+    }
+    if (!best) return null;
+    var op = best.op;
+    return { src: op.src, type: op.type || "", title: op.title || "", duration: op.duration || 0, season: best.season };
+  }
+
+  /**
+   * 家長設定（localStorage 鍵 momoke-brush-settings，另存，不影響 schema 2 的進度資料）：
+   *   { music: true | false }   刷牙音樂，預設開啟
+   */
+  function normalizeSettings(s) {
+    return { music: !(s && typeof s === "object" && s.music === false) };
+  }
+
   return {
     SCHEMA: SCHEMA, BRUSH_MS: BRUSH_MS, ZONE_MS: ZONE_MS, DAY_START_HOUR: DAY_START_HOUR,
     byId: byId, dayKey: dayKey, slotOf: slotOf, ymd: ymd, SLOT_KEYS: SLOT_KEYS,
@@ -333,6 +359,7 @@
     collectedSet: collectedSet, collectedIn: collectedIn, currentSeasonId: currentSeasonId,
     isSeasonComplete: isSeasonComplete, drawNextS1: drawNextS1, drawNext: drawNext,
     getDay: getDay, validPending: validPending, ensurePending: ensurePending, planBrush: planBrush,
-    recordBrush: recordBrush, cardsOnDay: cardsOnDay, migrateState: migrateState
+    recordBrush: recordBrush, cardsOnDay: cardsOnDay, migrateState: migrateState,
+    songFor: songFor, normalizeSettings: normalizeSettings
   };
 });

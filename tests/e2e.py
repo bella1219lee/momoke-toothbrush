@@ -58,9 +58,21 @@ def brush(page, now, speed=60, on_brush=None):
         return "capture"
     return "result"
 
+# 泡泡層（canvas）仍蓋住的比例：直接讀 canvas 的 alpha。region = (qx, qy) 只看某一區（0/1, 0/1）
+FOAM_JS = """(region) => { const c = document.getElementById('foam'); if (!c || !c.width) return null;
+    let x0 = 0, y0 = 0, w = c.width, h = c.height;
+    if (region) { w = Math.floor(c.width / 2); h = Math.floor(c.height / 2); x0 = region[0] * w; y0 = region[1] * h;
+                  x0 += Math.floor(w * 0.12); y0 += Math.floor(h * 0.12); w = Math.floor(w * 0.76); h = Math.floor(h * 0.76); }
+    const d = c.getContext('2d').getImageData(x0, y0, w, h).data; let n = 0, on = 0;
+    for (let i = 3; i < d.length; i += 4 * 5) { n++; if (d[i] > 24) on++; } return on / n; }"""
+def foam(page, region=None):
+    return page.evaluate(FOAM_JS, region)
+def music(page):
+    return page.evaluate("window.__momoke.music()")
+MUSIC_BASE = 0.55
+
 def reveal_info(page):
-    return page.evaluate("""() => ({ revealed: Number(document.getElementById('reveal').getAttribute('data-revealed')),
-        open: document.querySelectorAll('#reveal .cover.open').length, elapsed: window.__momoke.elapsed(),
+    return page.evaluate("""() => ({ elapsed: window.__momoke.elapsed(),
         id: document.getElementById('reveal').getAttribute('data-id'), zone: document.getElementById('zone-text').textContent,
         pending: (window.__momoke.state().pending || {}).id || null,
         stored: (JSON.parse(localStorage.getItem('momoke-brush-state-v1') || '{}').pending || {}).id || null })""")
@@ -109,57 +121,96 @@ with sync_playwright() as p:
     page.wait_for_selector("#screen-home.active")
     page.click("#btn-start")
     page.wait_for_selector("#screen-brush.active")
+    f0 = foam(page)
+    ok(f0 > 0.97, f"foam layer covers the card at the start ({f0:.3f})")
     ok(text(page, "#zone-text") == "請刷上排左邊", "first zone prompt 請刷上排左邊")
+    m0 = music(page)
+    ok(m0["exists"] and m0["src"] == "audio/s1_op.m4a" and m0["playing"] and m0["loop"] and m0["song"] == "捕萌少女", f"music 《捕萌少女》 starts on 開始刷牙 (loop on) ({m0})")
     page.wait_for_timeout(3600)
     r1 = reveal_info(page)
     ok(r1["id"] == "s1-m-01" and r1["pending"] == "s1-m-01" and r1["stored"] == "s1-m-01", f"pending card decided at start and saved in localStorage ({r1['id']})")
-    ok(r1["revealed"] == 1, f"first quarter uncovered after 30 s before stopping ({r1['revealed']})")
+    f1 = foam(page)
+    ok(f1 < 0.8 and foam(page, (0, 0)) < 0.02 and foam(page, (1, 1)) > 0.97, f"after ~36 s: 上排左邊 area brushed clean, rest still foamy ({f1:.2f})")
+    m1 = music(page)
+    ok(not m1["paused"] and m1["currentTime"] > 1.0, f"music element playing and advancing ({m1['currentTime']:.2f} s)")
     page.click("#btn-stop")
     page.wait_for_selector("#screen-home.active")
+    m2 = music(page)
+    ok(m2["paused"] and not m2["playing"] and m2["currentTime"] == 0, "停止 stops the music (paused, rewound)")
     ok("○" in slot(page, "slot-m") and len(state(page)["collected"]) == 0, "stopped brushing does not count")
     ok(state(page)["pending"]["id"] == "s1-m-01", "pending card kept after stopping")
     page.reload(); page.wait_for_selector("#screen-home.active")
     page.click("#btn-start"); page.wait_for_selector("#screen-brush.active"); page.wait_for_timeout(300)
     r2 = reveal_info(page)
-    ok(r2["id"] == r1["id"] and r2["revealed"] == 0, "restart after stop (and reload) reuses the same pending card, covered again")
+    ok(r2["id"] == r1["id"] and foam(page) > 0.95, "restart after stop (and reload) reuses the same pending card, foam restarts full")
     # ---- 3. visibility pause ----
     page.evaluate("""() => { Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'hidden'});
                          document.dispatchEvent(new Event('visibilitychange')); }""")
-    t1 = text(page, "#brush-time"); page.wait_for_timeout(1500); t2 = text(page, "#brush-time")
+    page.wait_for_timeout(200)  # let the in-flight animation frame catch up to the frozen time
+    t1 = text(page, "#brush-time"); fa = foam(page); page.wait_for_timeout(1500); t2 = text(page, "#brush-time"); fb = foam(page)
     ok(t1 == t2 and page.locator("#brush-paused").is_visible(), f"timer pauses when hidden ({t1} == {t2})")
+    ok(fa == fb, f"foam progress frozen while hidden ({fa:.3f} == {fb:.3f})")
+    ok(music(page)["paused"], "music pauses when the app is hidden")
     page.evaluate("""() => { Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'visible'});
                          document.dispatchEvent(new Event('visibilitychange')); }""")
     page.wait_for_timeout(1200)
     t3 = text(page, "#brush-time")
     ok(t3 != t2 and not page.locator("#brush-paused").is_visible(), f"timer resumes when visible ({t2} -> {t3})")
+    ok(not music(page)["paused"] and music(page)["playing"], "music resumes with the timer")
+    page.wait_for_timeout(1500)
+    ok(foam(page) < fb, "foam keeps clearing after resume")
     page.click("#btn-stop")
     page.wait_for_selector("#screen-home.active")
 
-    # ---- 4. morning brushing: reveal quarters at 30/60/90/120 s (speed 10: 30 s = 3 s) ----
+    # ---- 4. morning brushing: foam cleared by the toothbrush in step with the zones (speed 10: 30 s = 3 s) ----
     page.goto(url("2026-09-26T08:00", 10))
     page.wait_for_selector("#screen-home.active")
     page.click("#btn-start")
     page.wait_for_selector("#screen-brush.active")
-    t0 = time.time()
     def at(sec):  # wait until simulated brushing time ~sec
         page.wait_for_function(f"window.__momoke.elapsed() !== null && window.__momoke.elapsed() >= {sec * 1000}", timeout=20000)
-    at(15); r = reveal_info(page)
-    ok(r["revealed"] == 0 and r["open"] == 0 and r["zone"] == "請刷上排左邊", f"0–30 s: card fully covered, 請刷上排左邊 ({r['revealed']})")
-    ok(page.locator("#reveal").is_visible() and page.locator("#slideshow").is_hidden(), "earning brush shows the covered card (not slideshow)")
-    ok(page.locator("#brush-time").is_visible() and page.locator("#ring-fg").is_visible(), "ring/timer still visible")
-    at(44); r = reveal_info(page)
-    ok(r["revealed"] == 1 and r["open"] == 1 and r["zone"] == "請刷上排右邊", f"30 s: 1 quarter uncovered + 請刷上排右邊 ({r})")
-    ok(page.evaluate("getComputedStyle(document.querySelector('.cover[data-q=\"0\"]')).opacity") != "1", "top-left cover is fading/hidden")
-    page.screenshot(path=os.path.join(SHOTS, "02_reveal_1quarter.png"))
-    at(75); r = reveal_info(page)
-    ok(r["revealed"] == 2 and r["zone"] == "請刷下排左邊", f"60 s: 2 quarters uncovered + 請刷下排左邊 ({r['revealed']})")
-    at(104); r = reveal_info(page)
-    ok(r["revealed"] == 3 and r["zone"] == "請刷下排右邊", f"90 s: 3 quarters uncovered + 請刷下排右邊 ({r['revealed']})")
-    page.screenshot(path=os.path.join(SHOTS, "03_reveal_3quarters.png"))
+    samples = []
+    SHOT_AT = {27: "02_brush_25.png", 72: "03_brush_60.png", 108: "04_brush_90.png"}
+    ZONE_AT = {10: "請刷上排左邊", 45: "請刷上排右邊", 75: "請刷下排左邊", 105: "請刷下排右邊"}
+    zones_ok = True
+    for sec in [1, 10, 20, 27, 30, 35, 45, 60, 72, 75, 90, 105, 108, 110, 115, 119]:
+        at(sec)
+        cov = foam(page)
+        r = reveal_info(page)
+        samples.append((sec, cov))
+        if sec in ZONE_AT: zones_ok = zones_ok and r["zone"] == ZONE_AT[sec]
+        if sec == 10:
+            ok(page.locator("#reveal").is_visible() and page.locator("#slideshow").is_hidden(), "earning brush shows the foam-covered card (not slideshow)")
+            ok(page.locator("#brush-time").is_visible() and page.locator("#ring-fg").is_visible() and page.locator(".teeth").is_visible(), "ring/timer and zone prompts still visible")
+            ok(page.locator("#brush-fx").is_visible() and page.evaluate("window.__momoke.fx().r") > 0, "toothbrush animation canvas active")
+            ok(page.evaluate("document.documentElement.scrollWidth <= 390"), "brush screen: no horizontal overflow at 390px")
+        if sec == 30:
+            ok(foam(page, (0, 0)) < 0.02 and foam(page, (1, 0)) > 0.97 and foam(page, (0, 1)) > 0.97 and foam(page, (1, 1)) > 0.97,
+               "30 s: 上排左邊 quarter clean, other three still covered")
+        if sec == 35:
+            m = music(page)
+            ok(abs(m["target"] - MUSIC_BASE * 0.45) < 0.01, f"music ducks while the zone chime plays ({m['target']:.3f})")
+        if sec == 60:
+            ok(foam(page, (1, 0)) < 0.02 and foam(page, (0, 1)) > 0.97, "60 s: top half clean, bottom still covered")
+        if sec == 110:
+            m = music(page)
+            ok(not m["paused"] and abs(m["target"] - MUSIC_BASE) < 0.01 and m["webAudio"], f"110 s: music at normal level via Web Audio gain ({m['target']:.3f})")
+        if sec == 119:
+            m = music(page)
+            ok(m["target"] < MUSIC_BASE * 0.5 and m["gain"] < MUSIC_BASE * 0.6, f"119 s: music fading out ({m['target']:.3f})")
+        if sec in SHOT_AT: page.screenshot(path=os.path.join(SHOTS, SHOT_AT[sec]))
+    print("  foam coverage:", [(t, round(c, 3)) for t, c in samples])
+    ok(zones_ok, "zone prompts 上排左邊 → 上排右邊 → 下排左邊 → 下排右邊 at 0/30/60/90 s")
+    covs = [c for _, c in samples]
+    ok(all(b <= a + 1e-9 for a, b in zip(covs, covs[1:])), "foam coverage decreases monotonically over time")
+    cmap = dict(samples)
+    ok(cmap[1] > 0.99 and 0.62 < cmap[30] < 0.78 and 0.38 < cmap[60] < 0.54 and 0.14 < cmap[90] < 0.30 and cmap[119] < 0.05,
+       f"coverage tracks elapsed time (1 s {cmap[1]:.2f}, 30 s {cmap[30]:.2f}, 60 s {cmap[60]:.2f}, 90 s {cmap[90]:.2f}, 119 s {cmap[119]:.3f})")
     page.wait_for_selector("#screen-brush.finished", timeout=10000)
-    r = reveal_info(page)
-    ok(r["revealed"] == 4 and r["open"] == 4, f"120 s: card fully shown ({r['revealed']})")
-    page.screenshot(path=os.path.join(SHOTS, "04_reveal_full.png"))
+    ok(foam(page) < 0.001, f"2:00: card fully uncovered ({foam(page)})")
+    m = music(page)
+    ok(m["paused"] and m["gain"] < 0.01 and not m["playing"], "2:00: music faded out and stopped before the capture chime")
+    page.screenshot(path=os.path.join(SHOTS, "04b_brush_done.png"))
     page.wait_for_selector("#screen-capture.active", timeout=5000)
     page.wait_for_selector("#capture-info.show", timeout=5000)
     ok(text(page, "#capture-name") == "愛心萌可", "morning brush earns card 1 = 愛心萌可 (same as the revealed card)")
@@ -173,6 +224,16 @@ with sync_playwright() as p:
     ok(text(page, "#home-hint") == "早上的卡片已經得到了！晚上五點後刷牙，可以再得到一張！", "home hint after morning card")
     ok(state(page)["pending"] is None and state(page)["days"]["2026-09-26"]["mc"] == "s1-m-01", "day record mc = s1-m-01, pending cleared")
 
+    # ---- 4b. music loops seamlessly past the end of the 55 s song ----
+    open_home(page, "2026-09-26T09:30", 1)
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active")
+    page.wait_for_function("window.__momoke.music().duration > 50", timeout=10000)
+    page.evaluate("document.getElementById('brush-music').currentTime = document.getElementById('brush-music').duration - 0.6")
+    page.wait_for_timeout(1600)
+    m = music(page)
+    ok(m["loop"] and not m["paused"] and 0.2 < m["currentTime"] < 3, f"music loops back to the start after 55 s ({m['currentTime']:.2f} s)")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+
     # ---- 5. second brushing in same window → slideshow, no card ----
     def slideshow_check():
         page.wait_for_timeout(600)
@@ -180,6 +241,7 @@ with sync_playwright() as p:
         page.wait_for_function("document.querySelector('#slide-frame img') && document.querySelector('#slide-frame img').naturalWidth > 0")
         ok(text(page, "#slide-name") == "愛心萌可", "slideshow shows collected card 愛心萌可")
         ok("早上已經得到卡片" in text(page, "#brush-caption"), "slideshow caption explains window already earned")
+        ok(music(page)["playing"], "music also plays for non-earning brushings")
         page.screenshot(path=os.path.join(SHOTS, "06_slideshow.png"))
     r = brush(page, "2026-09-26T09:00", speed=10, on_brush=slideshow_check)
     ok(r == "result" and "早上已經得到卡片" in text(page, "#result-msg"), "second morning brushing: praised, no card")
@@ -320,6 +382,23 @@ with sync_playwright() as p:
     dl.value.save_as(backup)
     data = json.load(open(backup, encoding="utf-8"))
     ok(len(data["state"]["collected"]) == 17 and data["state"]["schema"] == 2, "export backup JSON contains 17 cards (schema 2)")
+    ok(data.get("settings") == {"music": True}, f"export includes settings (刷牙音樂 on) ({data.get('settings')})")
+    ok(page.get_attribute("#toggle-music", "aria-checked") == "true" and "開" in text(page, "#toggle-music") and "捕萌少女" in text(page, "#music-note"),
+       "parent area: 刷牙音樂 toggle defaults to 開")
+    page.locator(".modal-box").evaluate("e => e.scrollTop = 0")
+    page.screenshot(path=os.path.join(SHOTS, "13_parent_music.png"))
+    page.click("#toggle-music")
+    ok(page.get_attribute("#toggle-music", "aria-checked") == "false" and "關" in text(page, "#toggle-music")
+       and page.evaluate("JSON.parse(localStorage.getItem('momoke-brush-settings')).music") is False, "toggle 刷牙音樂 off → saved in localStorage")
+    page.click("#btn-parent-close")
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active"); page.wait_for_timeout(500)
+    m = music(page)
+    ok(not m["playing"] and (not m["exists"] or m["paused"]), "music off: brushing is silent (no music)")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    ok(page.evaluate("window.__momoke.settings().music") is False, "music setting persists after reload")
+    open_parent(page)
+    ok(page.get_attribute("#toggle-music", "aria-checked") == "false", "toggle shows 關 after reload")
     page.click("#btn-reset")
     page.wait_for_selector("#screen-home.active")
     ok(text(page, "#home-count") == "0 / 81", "reset clears all data")
@@ -327,6 +406,7 @@ with sync_playwright() as p:
     page.set_input_files("#import-file", backup)
     page.wait_for_timeout(600)
     ok(text(page, "#home-count") == "17 / 81", "import new-format backup restores 17 cards")
+    ok(page.evaluate("window.__momoke.settings().music") is True, "import restores settings from backup (刷牙音樂 on)")
     old_backup = {"app": "momoke-brush", "version": 1, "exportedAt": "2026-09-25T13:00:00.000Z", "state": {
         "schema": 1,
         "days": {"2026-09-23": {"m": 1, "e": 2, "cap": "s1-m-01", "x": 0}, "2026-09-24": {"m": 1, "e": 2, "cap": "s1-p-01", "x": 0},
@@ -390,20 +470,28 @@ with sync_playwright() as p:
     ok(page.evaluate("!!navigator.serviceWorker.controller"), "service worker registered and controlling page")
     for _ in range(40):
         cached = page.evaluate("caches.keys().then(ks => Promise.all(ks.map(k => caches.open(k).then(c => c.keys().then(r => [k, r.map(x => new URL(x.url).pathname)])))))")
-        v3 = dict(cached).get("momoke-brush-v3", [])
-        if len(v3) >= 91: break
+        v3 = dict(cached).get("momoke-brush-v4", [])
+        if len(v3) >= 93: break
         page.wait_for_timeout(250)
     print("  caches:", [(k, len(v)) for k, v in cached])
     all_imgs = page.evaluate("window.MOMOKE_DATA.items.map(i => i.img)")
     missing = [u for u in all_imgs if "/" + u not in v3]
-    ok(not missing and len(all_imgs) == 81, f"cache v3 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
-    ok(all(f in v3 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v3 holds core files")
-    ok(not any(k == "momoke-brush-v2" for k, _ in cached), "old v2 cache removed")
+    ok(not missing and len(all_imgs) == 81, f"cache v4 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
+    ok(all(f in v3 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v4 holds core files")
+    ok("/audio/s1_op.m4a" in v3, "cache v4 holds the brushing music audio/s1_op.m4a")
+    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3") for k, _ in cached), "old caches removed")
     ctx.set_offline(True)
     stop_server()  # really offline: no server at all
     page.reload(); page.wait_for_selector("#screen-home.active")
     ok(text(page, "#home-count") == "17 / 81", "app loads offline with data")
     ok(page.evaluate("document.querySelector('.mascot img').naturalWidth") > 0, "images load offline")
+    rng = page.evaluate("fetch('audio/s1_op.m4a', { headers: { Range: 'bytes=100-1099' } }).then(r => r.arrayBuffer().then(b => [r.status, b.byteLength, r.headers.get('Content-Range')]))")
+    ok(rng[0] == 206 and rng[1] == 1000 and rng[2].startswith("bytes 100-1099/"), f"offline: service worker answers audio Range requests with 206 ({rng})")
+    page.goto(url("2026-10-07T14:00", 1)); page.wait_for_selector("#screen-home.active")
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active"); page.wait_for_timeout(1800)
+    m = music(page)
+    ok(not m["paused"] and m["currentTime"] > 0.5 and m["duration"] > 50, f"offline: music plays from the cache ({m['currentTime']:.2f} s)")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
     page.goto(url("2026-10-07T08:00", 240))
     page.wait_for_selector("#screen-home.active")
     # offline: show every still in album (fake full collection) and make sure all load
@@ -492,11 +580,15 @@ with sync_playwright() as p:
         localStorage.setItem('momoke-brush-state-v1', JSON.stringify(st));
     }""")
     def still_check():
-        page.wait_for_function("window.__momoke.elapsed() >= 95000", timeout=20000)
+        page.wait_for_function("window.__momoke.elapsed() >= 50000", timeout=20000)
         ok(page.locator("#reveal.wide").is_visible() and page.evaluate("document.querySelector('#reveal-img img').naturalWidth") > 0, "16:9 still pending → wide reveal frame")
         bb = page.locator("#reveal").bounding_box()
         ok(abs(bb["width"] / bb["height"] - 16 / 9) < 0.05 and bb["x"] >= 0 and bb["x"] + bb["width"] <= 390, f"wide reveal fits 390px screen ({bb['width']:.0f}×{bb['height']:.0f})")
-        page.screenshot(path=os.path.join(SHOTS, "03b_reveal_still_3quarters.png"))
+        cv = foam(page)
+        ok(0.4 < cv < 0.68 and foam(page, (0, 0)) < 0.02 and foam(page, (1, 1)) > 0.97, f"16:9 still: foam clears in step with time too ({cv:.2f} at ~50 s)")
+        page.screenshot(path=os.path.join(SHOTS, "03b_brush_still_mid.png"))
+        page.wait_for_selector("#screen-brush.finished", timeout=20000)
+        ok(foam(page) < 0.001, "16:9 still fully uncovered at 2:00")
     r = brush(page, "2026-11-12T08:00", speed=10, on_brush=still_check)
     ok(r == "capture" and text(page, "#capture-name") == "粉紅頭髮的哥哥" and "第5集" in text(page, "#capture-blurb"), "still capture: name/blurb from blurbs.json")
     shot(page, "05b_capture_still.png")
@@ -513,7 +605,7 @@ stop_server()
 # ---- 23. UI text scan: written Chinese (Traditional), no Cantonese colloquial, no simplified ----
 CANTONESE = set("嘅咗唔係佢哋冇喺嚟啲嘢睇俾攞諗咩噉啱嗰乜冚揾搵咁")
 src_text = ""
-for f in ["index.html", "app.js", "data.js", "manifest.webmanifest"]:
+for f in ["index.html", "app.js", "data.js", "brushfx.js", "manifest.webmanifest"]:
     src_text += open(os.path.join(APP_DIR, f), encoding="utf-8").read()
 strings = "".join(re.findall(r"[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]+", src_text))
 bad_cant = sorted(set(ch for ch in strings if ch in CANTONESE))

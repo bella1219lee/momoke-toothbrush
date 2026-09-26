@@ -5,7 +5,7 @@
  * 要更換圖片：
  *   1. 把圖片放進 img/s1/、img/princess/ 或 img/stills/（檔名見 README.md）
  *   2. 在下面對應項目設定 img（例如 "img/stills/ep01_a.jpg"）；沒有圖片時為 null
- *   3. 把 sw.js 裡的 VERSION 加一（例如 "v3" → "v4"），讓已安裝的 App 更新快取
+ *   3. 把 sw.js 裡的 VERSION 加一（例如 "v4" → "v5"），讓已安裝的 App 更新快取
  * img 為 null 或圖片載入失敗時，App 會顯示「圖片準備中」的空白卡片。
  *
  * 欄位：
@@ -31,7 +31,9 @@
         total: 81,
         first: ["s1-m-01", "s1-p-01"],   // 第 1、2 次捕捉固定
         finalItem: "s1-m-24",            // 最後一張（第 81 張）：鬧鬧萌可
-        completeTitle: "恭喜集齊第一季！"
+        completeTitle: "恭喜集齊第一季！",
+        // 刷牙音樂：這一季的主題曲（片頭曲），刷牙時循環播放。檔案會自動加入離線快取（sw.js）。
+        music: { op: { src: "audio/s1_op.m4a", type: "audio/mp4", title: "捕萌少女", duration: 55.0 } }
       },
       {
         // 第二季（未開放）。之後開放時：把 open 改成 true，並在 items 加入 season: "s2" 的卡片。
@@ -40,7 +42,11 @@
         name: "第二季",
         open: false,
         lockedText: "第二季 敬請期待",
-        transform: { from: "s1-m-24", to: null /* 例如 "s2-m-01"（幸福萌可） */ }
+        transform: { from: "s1-m-24", to: null /* 例如 "s2-m-01"（幸福萌可） */ },
+        // 第二季的主題曲未有檔案。之後加入：放進 audio/（例如 audio/s2_op.m4a），改成
+        //   music: { op: { src: "audio/s2_op.m4a", type: "audio/mp4", title: "歌名", duration: 秒數 } }
+        // 未有歌的季度會沿用最近一季的歌（logic.js songFor）。
+        music: null
       }
     ],
 

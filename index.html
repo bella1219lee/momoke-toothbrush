@@ -74,19 +74,18 @@
     </div>
     <p class="brush-caption" id="brush-caption"></p>
     <div class="stage" id="brush-stage">
-      <!-- 這次會得到的卡片：蓋著「？」，每 30 秒揭開四分之一 -->
-      <div class="reveal" id="reveal" data-revealed="0" hidden>
+      <!-- 這次會得到的卡片：蓋著泡泡，牙刷跟著刷牙提示把泡泡刷走，2:00 完全露出 -->
+      <div class="reveal" id="reveal" hidden>
         <div class="reveal-img" id="reveal-img"></div>
-        <div class="cover" data-q="0"><div class="cover-in"><span class="cover-q">？</span></div></div>
-        <div class="cover" data-q="1"><div class="cover-in"><span class="cover-q">？</span></div></div>
-        <div class="cover" data-q="2"><div class="cover-in"><span class="cover-q">？</span></div></div>
-        <div class="cover" data-q="3"><div class="cover-in"><span class="cover-q">？</span></div></div>
+        <canvas class="foam" id="foam" aria-hidden="true"></canvas>
       </div>
       <!-- 不會得到卡片時：播放已收集的卡片 -->
       <div class="slideshow" id="slideshow" hidden>
         <div class="slide-frame" id="slide-frame"></div>
         <div class="slide-name" id="slide-name"></div>
       </div>
+      <!-- 牙刷、小泡泡、星星 -->
+      <canvas class="brush-fx" id="brush-fx" aria-hidden="true"></canvas>
     </div>
     <div class="teeth" aria-hidden="true">
       <div class="tq" data-q="0">上排左邊</div>
@@ -196,18 +195,26 @@
     <div class="modal-box">
       <h2>家長設定</h2>
       <p class="parent-info" id="parent-info"></p>
+      <div class="setting-row">
+        <span class="setting-label">🎵 刷牙音樂</span>
+        <button class="switch" id="toggle-music" type="button" role="switch" aria-checked="true" aria-label="刷牙音樂">
+          <span class="switch-text" id="toggle-music-text">開</span><span class="switch-knob"></span>
+        </button>
+      </div>
+      <p class="setting-note" id="music-note"></p>
       <button class="btn btn-small btn-purple" id="btn-export" type="button">匯出備份</button>
       <button class="btn btn-small btn-blue" id="btn-import" type="button">匯入備份</button>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
       <button class="btn btn-small btn-danger" id="btn-reset" type="button">重設所有資料</button>
       <button class="btn btn-small btn-ghost" id="btn-parent-close" type="button">關閉</button>
-      <p class="parent-rules">規則：每天以凌晨四點為分界。在早上時段（四點至中午十二點）或晚上時段（下午五點至凌晨四點）完整刷牙兩分鐘，每次都能得到一張卡片；每個時段最多一張，每天最多兩張。漏刷只會少一張卡片，已收集的卡片永遠保留。在時段以外刷牙，或同一時段再刷一次，會計時和稱讚，但不會得到卡片。刷牙開始時就會決定這次的卡片，中途停止的話，下次刷牙仍是同一張。第一季共 81 張，每天兩張約 41 天集齊。</p>
+      <p class="parent-rules">規則：每天以凌晨四點為分界。在早上時段（四點至中午十二點）或晚上時段（下午五點至凌晨四點）完整刷牙兩分鐘，每次都能得到一張卡片；每個時段最多一張，每天最多兩張。漏刷只會少一張卡片，已收集的卡片永遠保留。在時段以外刷牙，或同一時段再刷一次，會計時和稱讚，但不會得到卡片。刷牙開始時就會決定這次的卡片，卡片蓋著泡泡，刷牙時牙刷會慢慢把泡泡刷走，刷滿兩分鐘就完全露出；中途停止的話，下次刷牙仍是同一張（泡泡會重新蓋好）。第一季共 81 張，每天兩張約 41 天集齊。</p>
     </div>
   </div>
 
 </div>
 <script src="data.js"></script>
 <script src="logic.js"></script>
+<script src="brushfx.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
