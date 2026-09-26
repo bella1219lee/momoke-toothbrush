@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>萌可刷牙</title>
+  <meta name="description" content="奇妙萌可刷牙獎勵畫冊">
+  <meta name="theme-color" content="#fbd3ea">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="萌可刷牙">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 主頁 -->
+  <section id="screen-home" class="screen active" aria-label="主頁">
+    <header class="home-head">
+      <h1 id="app-title" class="app-title">萌可刷牙</h1>
+    </header>
+    <div class="mascot">
+      <div class="mascot-halo"></div>
+      <img src="img/s1/01_aixin.jpg" alt="愛心萌可" draggable="false">
+    </div>
+    <div class="status-card">
+      <div class="today-label" id="today-label"></div>
+      <div class="slots">
+        <div class="slot" id="slot-m"><span class="slot-icon">☀️</span><span class="slot-name">早上</span><span class="slot-mark">○</span></div>
+        <div class="slot" id="slot-e"><span class="slot-icon">🌙</span><span class="slot-name">晚上</span><span class="slot-mark">○</span></div>
+      </div>
+      <p class="hint" id="home-hint"></p>
+    </div>
+    <button class="collect-bar" id="home-collect" type="button">
+      <span class="collect-label">已收集</span>
+      <span class="collect-count" id="home-count">0 / 39</span>
+      <span class="collect-track"><i id="home-bar"></i></span>
+    </button>
+    <nav class="big-buttons">
+      <button class="btn btn-pink" id="btn-start" type="button"><span class="btn-emoji">🪥</span>開始刷牙</button>
+      <button class="btn btn-purple" id="btn-album" type="button"><span class="btn-emoji">📖</span>我的畫冊</button>
+      <button class="btn btn-blue" id="btn-calendar" type="button"><span class="btn-emoji">📅</span>刷牙日曆</button>
+    </nav>
+  </section>
+
+  <!-- 刷牙中 -->
+  <section id="screen-brush" class="screen" aria-label="刷牙中">
+    <div class="brush-top">
+      <div class="brush-buddy"><img src="img/s1/01_aixin.jpg" alt="" draggable="false"><span class="bubble" id="brush-bubble">加油！</span></div>
+    </div>
+    <div class="ring-wrap">
+      <svg class="ring" viewBox="0 0 220 220" aria-hidden="true">
+        <defs>
+          <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#ff7fbf"/>
+            <stop offset="100%" stop-color="#a77bff"/>
+          </linearGradient>
+        </defs>
+        <circle class="ring-bg" cx="110" cy="110" r="96"/>
+        <circle class="ring-fg" id="ring-fg" cx="110" cy="110" r="96"/>
+      </svg>
+      <div class="ring-center">
+        <div class="time" id="brush-time">2:00</div>
+        <div class="paused" id="brush-paused" hidden>暫停中</div>
+      </div>
+    </div>
+    <p class="zone-text" id="zone-text">請刷上排左邊</p>
+    <div class="teeth" aria-hidden="true">
+      <div class="tq" data-q="0">上排<br>左邊</div>
+      <div class="tq" data-q="1">上排<br>右邊</div>
+      <div class="tq" data-q="2">下排<br>左邊</div>
+      <div class="tq" data-q="3">下排<br>右邊</div>
+    </div>
+    <button class="btn btn-stop" id="btn-stop" type="button">停止</button>
+  </section>
+
+  <!-- 結果 -->
+  <section id="screen-result" class="screen" aria-label="結果">
+    <div class="result-emoji" id="result-emoji">🎉</div>
+    <div class="result-mascot"><img src="img/s1/01_aixin.jpg" alt="" draggable="false"></div>
+    <h2 class="result-title" id="result-title"></h2>
+    <p class="result-msg" id="result-msg"></p>
+    <button class="btn btn-pink" id="btn-result-home" type="button">回到主頁</button>
+  </section>
+
+  <!-- 捕捉 -->
+  <section id="screen-capture" class="screen" aria-label="捕捉萌可">
+    <div class="sparkles" id="sparkles" aria-hidden="true"></div>
+    <h2 class="capture-title" id="capture-title">萌可出現了！</h2>
+    <div class="flip-card" id="flip-card">
+      <div class="flip-inner">
+        <div class="flip-face flip-back"><span class="heart">💗</span><span class="q">？</span></div>
+        <div class="flip-face flip-front" id="capture-front"></div>
+      </div>
+    </div>
+    <div class="capture-info" id="capture-info">
+      <div class="capture-number" id="capture-number"></div>
+      <div class="card-name" id="capture-name"></div>
+      <p class="card-blurb" id="capture-blurb"></p>
+      <button class="btn btn-pink" id="btn-capture-done" type="button">放進畫冊</button>
+    </div>
+  </section>
+
+  <!-- 畫冊 -->
+  <section id="screen-album" class="screen" aria-label="我的畫冊">
+    <header class="sub-head">
+      <button class="back" data-go="home" type="button" aria-label="返回">‹ 返回</button>
+      <h2>我的畫冊</h2>
+      <span class="head-spacer"></span>
+    </header>
+    <div class="season-bar">
+      <span class="season-chip on" id="album-season">第一季 0 / 39</span>
+      <span class="season-chip locked">🔒 第二季 敬請期待</span>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="momoke" role="tab" type="button">萌可</button>
+      <button class="tab" data-tab="princess" role="tab" type="button">公主</button>
+      <button class="tab" data-tab="still" role="tab" type="button">劇照</button>
+    </div>
+    <div class="grid" id="album-grid"></div>
+  </section>
+
+  <!-- 日曆 -->
+  <section id="screen-calendar" class="screen" aria-label="刷牙日曆">
+    <header class="sub-head">
+      <button class="back" data-go="home" type="button" aria-label="返回">‹ 返回</button>
+      <h2>刷牙日曆</h2>
+      <span class="head-spacer"></span>
+    </header>
+    <div class="month-nav">
+      <button class="round-btn" id="cal-prev" type="button" aria-label="上個月">‹</button>
+      <div class="month-title" id="cal-title"></div>
+      <button class="round-btn" id="cal-next" type="button" aria-label="下個月">›</button>
+    </div>
+    <div class="cal-week"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+    <div class="cal-grid" id="cal-grid"></div>
+    <p class="cal-summary" id="cal-summary"></p>
+    <div class="cal-legend"><span>☀️ 早上</span><span>🌙 晚上</span><span>⭐ 捕捉卡片</span></div>
+  </section>
+
+  <!-- 集齊 -->
+  <section id="screen-celebrate" class="screen" aria-label="恭喜">
+    <div class="sparkles on" aria-hidden="true" id="celebrate-sparkles"></div>
+    <div class="celebrate-emoji">🏆</div>
+    <h2 class="celebrate-title" id="celebrate-title">恭喜集齊第一季！</h2>
+    <p class="result-msg">你每天早晚都認真刷牙，<br>收集了全部卡片！</p>
+    <div class="locked-card"><span class="lock">🔒</span><span id="celebrate-next">第二季 敬請期待</span></div>
+    <button class="btn btn-purple" data-go="album" type="button">看看我的畫冊</button>
+    <button class="btn btn-pink" data-go="home" type="button">回到主頁</button>
+  </section>
+
+  <!-- 全螢幕卡片 -->
+  <div class="viewer" id="viewer" hidden>
+    <button class="viewer-close" id="viewer-close" type="button" aria-label="關閉">✕</button>
+    <div class="viewer-stage" id="viewer-stage">
+      <div class="viewer-card" id="viewer-card"></div>
+      <div class="viewer-type" id="viewer-type"></div>
+      <div class="card-name" id="viewer-name"></div>
+      <p class="card-blurb" id="viewer-blurb"></p>
+    </div>
+    <div class="viewer-nav">
+      <button class="round-btn big" id="viewer-prev" type="button" aria-label="上一張">‹</button>
+      <span class="viewer-count" id="viewer-count"></span>
+      <button class="round-btn big" id="viewer-next" type="button" aria-label="下一張">›</button>
+    </div>
+  </div>
+
+  <!-- 家長區（長按標題 3 秒） -->
+  <div class="modal" id="parent" hidden>
+    <div class="modal-box">
+      <h2>家長設定</h2>
+      <p class="parent-info" id="parent-info"></p>
+      <button class="btn btn-small btn-purple" id="btn-export" type="button">匯出備份</button>
+      <button class="btn btn-small btn-blue" id="btn-import" type="button">匯入備份</button>
+      <input type="file" id="import-file" accept="application/json,.json" hidden>
+      <button class="btn btn-small btn-danger" id="btn-reset" type="button">重設所有資料</button>
+      <button class="btn btn-small btn-ghost" id="btn-parent-close" type="button">關閉</button>
+      <p class="parent-rules">規則：每天以凌晨四點為分界。早上（四點至中午十二點）和晚上（下午五點至凌晨四點）各完整刷牙兩分鐘，就能捕捉一張卡片，每天最多一張。</p>
+    </div>
+  </div>
+
+</div>
+<script src="data.js"></script>
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
