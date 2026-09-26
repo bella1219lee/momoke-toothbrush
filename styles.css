@@ -184,6 +184,44 @@ img { -webkit-user-drag: none; }
 .btn-stop { margin: 0; }
 #screen-brush.finished .btn-stop { visibility: hidden; }
 
+/* ---------- 預備倒數（10 秒） ---------- */
+/* 倒數和刷牙的標題 / 底部放在同一格（grid 疊放），切換時版面不會跳動 */
+.head-stack, .foot-stack { width: 100%; display: grid; justify-items: center; align-items: center; }
+.head-stack > *, .foot-stack > * { grid-area: 1 / 1; }
+#screen-brush.ready .brush-head, #screen-brush.ready .teeth { visibility: hidden; }
+#screen-brush:not(.ready) .ready-head, #screen-brush:not(.ready) .ready-actions { visibility: hidden; }
+.ready-head { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.ready-title { margin: 0; font-size: 27px; font-weight: 900; color: var(--pink-d); line-height: 1.25; text-wrap: balance;
+  text-shadow: 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff; }
+.ready-actions { width: 100%; display: flex; justify-content: center; }
+.btn-ready { width: auto; min-width: 200px; max-width: 260px; min-height: 56px; margin: 0; padding: 0 26px; font-size: 22px; letter-spacing: 1px;
+  background: linear-gradient(180deg, #b595ff, var(--purple)); }
+/* 大數字：放在卡片中間一個大泡泡裡，粉紅→紫色漸層、白色描邊，每秒彈跳一下 */
+.ready-count { position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.ready-bubble { position: relative; width: min(62%, 210px); aspect-ratio: 1; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 45%, #fff 0%, #fffafd 52%, #ffe6f3 80%, #ebdfff 100%);
+  border: 5px solid #fff; box-shadow: 0 10px 26px rgba(125,79,230,.28), 0 0 0 6px rgba(255,140,196,.22), inset 0 -10px 22px rgba(181,149,255,.22); }
+.ready-bubble::before { content: ""; position: absolute; left: 17%; top: 12%; width: 24%; height: 15%; border-radius: 50%;
+  background: rgba(255,255,255,.95); transform: rotate(-35deg); }
+.ready-bubble::after { content: ""; position: absolute; left: 13%; top: 30%; width: 7%; height: 7%; border-radius: 50%; background: rgba(255,255,255,.9); }
+.ready-num { position: relative; z-index: 1; display: block; font-size: 116px; font-weight: 900; line-height: 1; letter-spacing: -4px; padding: 0 6px 6px 0;
+  font-variant-numeric: tabular-nums; color: var(--pink);
+  background: linear-gradient(180deg, #ff7fbf 15%, #c07cff 60%, #9b6bff 95%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(3px 0 0 #fff) drop-shadow(-3px 0 0 #fff) drop-shadow(0 3px 0 #fff) drop-shadow(0 -3px 0 #fff) drop-shadow(0 6px 8px rgba(232,80,154,.35)); }
+.ready-paused { position: relative; z-index: 1; margin-top: -2px; padding: 2px 12px; border-radius: 12px; background: var(--purple-l); font-size: 17px; font-weight: 800; color: var(--purple-d); }
+.ready-bubble.pop { animation: readyPop .62s cubic-bezier(.3,1.6,.5,1); }
+@keyframes readyPop { 0% { transform: scale(.5) rotate(-8deg); } 55% { transform: scale(1.14) rotate(3deg); } 78% { transform: scale(.96) rotate(-1deg); } 100% { transform: scale(1) rotate(0); } }
+/* 未有卡片時的提示卡：倒數時只保留底色（文字被大泡泡擋住會很亂），開始刷牙後才顯示文字 */
+#screen-brush.ready .slide-frame.friendly > * { visibility: hidden; }
+/* 「開始刷牙！」：泡泡變成橫向的膠囊，彈出後慢慢淡出（不擋住刷牙） */
+.ready-count.go .ready-bubble { width: auto; aspect-ratio: auto; padding: 22px 26px 24px; border-radius: 60px; }
+.ready-count.go .ready-bubble::before { left: 9%; top: 10%; width: 14%; height: 22%; }
+.ready-count.go .ready-bubble::after { left: 6%; top: 42%; width: 4%; height: 12%; }
+.ready-count.go .ready-num { font-size: 46px; letter-spacing: 2px; padding: 0 0 4px; }
+.ready-count.go { animation: goOut 1.5s ease forwards; }
+@keyframes goOut { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
 /* ---------- 結果 ---------- */
 #screen-result { justify-content: center; text-align: center; }
 .result-emoji { font-size: 64px; animation: pop .6s ease; }
@@ -325,4 +363,5 @@ img { -webkit-user-drag: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+  .ready-count.go { animation: none !important; } /* 「開始刷牙！」不淡出，由程式在 1.5 秒後收起 */
 }

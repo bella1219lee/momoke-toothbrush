@@ -50,6 +50,7 @@
 
   <!-- 刷牙中 -->
   <section id="screen-brush" class="screen" aria-label="刷牙中">
+    <div class="head-stack">
     <div class="brush-head">
       <div class="ring-wrap">
         <svg class="ring" viewBox="0 0 220 220" aria-hidden="true">
@@ -72,6 +73,12 @@
         <span class="bubble" id="brush-bubble">加油！</span>
       </div>
     </div>
+    <!-- 預備倒數（10 秒，不計入 2 分鐘） -->
+    <div class="ready-head" id="ready-head">
+      <p class="ready-title" id="ready-title">準備好牙刷和牙膏了嗎？</p>
+      <span class="bubble" id="ready-sub">倒數完畢就開始刷牙！</span>
+    </div>
+    </div>
     <p class="brush-caption" id="brush-caption"></p>
     <div class="stage" id="brush-stage">
       <!-- 這次會得到的卡片：蓋著泡泡，牙刷跟著刷牙提示把泡泡刷走，2:00 完全露出 -->
@@ -86,12 +93,24 @@
       </div>
       <!-- 牙刷、小泡泡、星星 -->
       <canvas class="brush-fx" id="brush-fx" aria-hidden="true"></canvas>
+      <!-- 預備倒數的大數字（10→1），最後顯示「開始刷牙！」 -->
+      <div class="ready-count" id="ready-count" hidden>
+        <div class="ready-bubble" id="ready-bubble">
+          <span class="ready-num" id="ready-num" role="timer" aria-live="off">10</span>
+          <span class="ready-paused" id="ready-paused" hidden>暫停中</span>
+        </div>
+      </div>
     </div>
+    <div class="foot-stack">
     <div class="teeth" aria-hidden="true">
       <div class="tq" data-q="0">上排左邊</div>
       <div class="tq" data-q="1">上排右邊</div>
       <div class="tq" data-q="2">下排左邊</div>
       <div class="tq" data-q="3">下排右邊</div>
+    </div>
+    <div class="ready-actions" id="ready-actions">
+      <button class="btn btn-ready" id="btn-ready" type="button">我準備好了</button>
+    </div>
     </div>
     <button class="btn btn-stop" id="btn-stop" type="button">停止</button>
   </section>
@@ -202,12 +221,19 @@
         </button>
       </div>
       <p class="setting-note" id="music-note"></p>
+      <div class="setting-row">
+        <span class="setting-label">⏳ 預備時間</span>
+        <button class="switch" id="toggle-ready" type="button" role="switch" aria-checked="true" aria-label="預備時間">
+          <span class="switch-text" id="toggle-ready-text">開</span><span class="switch-knob"></span>
+        </button>
+      </div>
+      <p class="setting-note" id="ready-note"></p>
       <button class="btn btn-small btn-purple" id="btn-export" type="button">匯出備份</button>
       <button class="btn btn-small btn-blue" id="btn-import" type="button">匯入備份</button>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
       <button class="btn btn-small btn-danger" id="btn-reset" type="button">重設所有資料</button>
       <button class="btn btn-small btn-ghost" id="btn-parent-close" type="button">關閉</button>
-      <p class="parent-rules">規則：每天以凌晨四點為分界。在早上時段（四點至中午十二點）或晚上時段（下午五點至凌晨四點）完整刷牙兩分鐘，每次都能得到一張卡片；每個時段最多一張，每天最多兩張。漏刷只會少一張卡片，已收集的卡片永遠保留。在時段以外刷牙，或同一時段再刷一次，會計時和稱讚，但不會得到卡片。刷牙開始時就會決定這次的卡片，卡片蓋著泡泡，刷牙時牙刷會慢慢把泡泡刷走，刷滿兩分鐘就完全露出；中途停止的話，下次刷牙仍是同一張（泡泡會重新蓋好）。第一季共 81 張，每天兩張約 41 天集齊。</p>
+      <p class="parent-rules">規則：每天以凌晨四點為分界。在早上時段（四點至中午十二點）或晚上時段（下午五點至凌晨四點）完整刷牙兩分鐘，每次都能得到一張卡片；每個時段最多一張，每天最多兩張。漏刷只會少一張卡片，已收集的卡片永遠保留。在時段以外刷牙，或同一時段再刷一次，會計時和稱讚，但不會得到卡片。刷牙開始時就會決定這次的卡片，卡片蓋著泡泡，刷牙時牙刷會慢慢把泡泡刷走，刷滿兩分鐘就完全露出；中途停止的話，下次刷牙仍是同一張（泡泡會重新蓋好）。按「開始刷牙」後會先倒數十秒，讓小朋友準備好牙刷和牙膏，倒數不計入兩分鐘；在時段開始或結束前後刷牙時，倒數開始或真正開始刷牙的時間只要其中一個在時段內，就能得到該時段的卡片。第一季共 81 張，每天兩張約 41 天集齊。</p>
     </div>
   </div>
 

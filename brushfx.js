@@ -7,6 +7,8 @@
  *   每區開頭 1.5 秒牙刷移到該區的起點，其餘 28.5 秒沿之字形路線刷走該區的泡泡；2:00 剛好全部刷走。
  *   路線上每隔幾個像素有一個圓形「刷走點」；經過時間 e 對應固定數目的刷走點，所以結果只取決於 e。
  * plan() / at() / counts() 是純函數，可在 Node 測試（tests/draw.test.js）。
+ *
+ * 預備倒數（ready / pop）：泡泡層蓋滿（不刷走），卡片四周慢慢升起小泡泡、閃閃的星光；每一秒數字跳出時灑一圈星星。
  */
 (function (root, factory) {
   if (typeof module !== "undefined" && module.exports) module.exports = factory();
@@ -249,6 +251,44 @@
       g.closePath(); g.globalAlpha = a; g.fillStyle = p.c; g.fill();
       g.lineWidth = 1; g.strokeStyle = "rgba(255,255,255,.9)"; g.stroke(); g.restore();
     }
+    // 四角閃光（預備倒數時在卡片四周閃爍）：原地放大縮小
+    function sparkle4(p, a) {
+      var u = 1 - p.life / p.max, R = p.r * Math.sin(Math.PI * u), r2 = R * 0.26;
+      if (R <= 0.3) return;
+      g.save(); g.translate(p.x, p.y); g.rotate(p.rot * 0.3); g.beginPath();
+      for (var i = 0; i < 8; i++) { var rr = i % 2 ? r2 : R, an = i * Math.PI / 4 - Math.PI / 2; g.lineTo(Math.cos(an) * rr, Math.sin(an) * rr); }
+      g.closePath(); g.globalAlpha = Math.min(1, a * 1.2); g.fillStyle = p.c; g.fill();
+      g.lineWidth = 1; g.strokeStyle = "rgba(255,255,255,.95)"; g.stroke(); g.restore();
+    }
+    var SPARK_C = ["#ffd54a", "#ff8cc4", "#b595ff", "#ffffff"];
+    /** 預備倒數的背景粒子：卡片底部慢慢升起的泡泡、卡片邊框附近的閃光 */
+    function ambient(kind) {
+      if (parts.length > 90) parts.shift();
+      var r = P.r, life;
+      if (kind === "b") {
+        life = 2.4 + Math.random() * 1.8;
+        parts.push({ k: "b", x: box.ox + Math.random() * box.w, y: box.oy + box.h + 6, vx: (Math.random() - 0.5) * 16, vy: -22 - Math.random() * 30,
+          r: (3 + Math.random() * 6) * r / 24, life: life, max: life, rot: 0, c: "" });
+      } else {
+        var p = edgePoint(Math.random()), out = (Math.random() - 0.3) * 30;
+        var cx = box.w / 2, cy = box.h / 2, dx = p[0] - cx, dy = p[1] - cy, d = Math.hypot(dx, dy) || 1;
+        life = 0.9 + Math.random() * 0.8;
+        parts.push({ k: "k", x: box.ox + p[0] + dx / d * out, y: box.oy + p[1] + dy / d * out, vx: 0, vy: 0,
+          r: (7 + Math.random() * 8) * r / 24, life: life, max: life, rot: Math.random() * TAU, c: SPARK_C[Math.floor(Math.random() * SPARK_C.length)] });
+      }
+    }
+    /** 一圈星星和泡泡從半徑 rad（卡片短邊的比例）向外飛 */
+    function ring(n, rad, big) {
+      var cx = box.ox + box.w / 2, cy = box.oy + box.h / 2, R0 = Math.min(box.w, box.h) * rad, r = P.r;
+      for (var i = 0; i < n; i++) {
+        if (parts.length > 110) parts.shift();
+        var an = (i / n) * TAU + Math.random() * 0.4, sp = (big ? 70 : 45) + Math.random() * 60, kind = i % 3 === 2 ? "b" : "s";
+        var life = 0.8 + Math.random() * 0.6;
+        parts.push({ k: kind, x: cx + Math.cos(an) * R0, y: cy + Math.sin(an) * R0, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp - 15,
+          r: (kind === "b" ? 3 + Math.random() * 5 : (big ? 6 : 4.5) + Math.random() * 4) * r / 24, life: life, max: life, rot: Math.random() * TAU,
+          c: Math.random() < 0.45 ? "#ffd54a" : (Math.random() < 0.5 ? "#ff8cc4" : "#b595ff") });
+      }
+    }
     function drawParts(dt) {
       for (var i = parts.length - 1; i >= 0; i--) {
         var p = parts[i];
@@ -257,6 +297,7 @@
         p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.rot += dt * 2;
         if (p.k === "s") p.vy += 30 * dt;
         var a = Math.min(1, p.life / p.max * 1.6);
+        if (p.k === "k") { sparkle4(p, a); continue; }
         if (p.k === "b") {
           g.globalAlpha = a;
           g.beginPath(); g.arc(p.x, p.y, p.r, 0, TAU);
@@ -307,6 +348,27 @@
       retarget: function (el) { target = el; needMeasure = true; },
       invalidate: function () { needMeasure = true; },
       render: function (e, t) { frame(e, t, true); },
+      /** 預備倒數的一格：泡泡層蓋滿（不刷走），不畫牙刷，只有升起的泡泡和閃光 */
+      ready: function (t) {
+        frameN++;
+        if (needMeasure || frameN % 40 === 0) { measure(); needMeasure = false; }
+        if (!P) { if (cw) { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, fx.width, fx.height); } return; }
+        var dt = lastT ? clamp((t - lastT) / 1000, 0, 0.05) : 0;
+        lastT = t; lastE = 0;
+        if (dt) {
+          emitB += dt * (reduced ? 1 : 3.2); emitS += dt * (reduced ? 0.6 : 2.6);
+          while (emitB >= 1) { emitB -= 1; ambient("b"); }
+          while (emitS >= 1) { emitS -= 1; ambient("k"); }
+        }
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g.clearRect(0, 0, cw, ch);
+        drawParts(dt);
+      },
+      /** 倒數每一秒（big = 「開始刷牙！」）：從中間的大泡泡邊緣灑出一圈星星 */
+      pop: function (big) {
+        if (!P) return;
+        ring(big ? (reduced ? 8 : 22) : (reduced ? 3 : 9), big ? 0.36 : 0.3, big);
+      },
       /** 2:00：泡泡全部刷走，牙刷離開，灑星星 */
       finish: function () {
         frame(BRUSH_MS, performance.now(), false);

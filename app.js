@@ -196,6 +196,16 @@
       // 播放音樂時提示音大聲一點（同時音樂會暫時降低音量）
       chime: function (loud) { var k = loud ? 1.7 : 1; tone(1046.5, 0, 0.5, "triangle", 0.16 * k); tone(1568, 0.14, 0.7, "triangle", 0.13 * k); },
       start: function () { tone(784, 0, 0.25, "triangle", 0.14); tone(1046.5, 0.12, 0.4, "triangle", 0.14); },
+      // 預備倒數：每秒一下輕輕的「滴」（最後三秒稍微明亮），不會太吵
+      tick: function (n) {
+        if (n > 3) { tone(880, 0, 0.16, "sine", 0.05); tone(1760, 0, 0.07, "sine", 0.015); }
+        else { tone(1174.66, 0, 0.2, "triangle", 0.075); tone(2349.3, 0, 0.08, "sine", 0.02); }
+      },
+      // 「開始刷牙！」：明亮的上行鐘聲
+      go: function () {
+        [783.99, 1046.5, 1318.5, 1567.98].forEach(function (f, i) { tone(f, i * 0.08, 0.45, "triangle", 0.11); });
+        tone(2093, 0.32, 0.6, "sine", 0.06); tone(2637, 0.4, 0.5, "sine", 0.04);
+      },
       fanfare: function () {
         [523.25, 659.25, 783.99, 1046.5].forEach(function (f, i) { tone(f, i * 0.13, 0.35, "square", 0.07); tone(f, i * 0.13, 0.4, "triangle", 0.12); });
         [523.25, 659.25, 783.99, 1046.5].forEach(function (f) { tone(f, 0.6, 0.9, "triangle", 0.09); });
@@ -207,9 +217,9 @@
   // ---------- 刷牙音樂（<audio> 循環播放；有 Web Audio 時經 GainNode 控制音量和淡出） ----------
   var music = (function () {
     var BASE = 0.55;       // 音樂音量（比滿音量低，讓提示音聽得清楚）
-    var FADE_MS = 3000;    // 最後 3 秒淡出，2:00 剛好靜音
+    var FADE_MS = 3000;    // 刷牙最後 3 秒淡出，2:00 剛好靜音（音量只看刷牙經過時間；預備倒數時 e = 0，保持正常音量）
     var DUCK = 0.45, DUCK_MS = 1400; // 提示音響起時音樂暫時降低
-    var el = null, gain = null, playing = false, duckAt = -1e9, vol = -1, song = null;
+    var el = null, gain = null, playing = false, duckAt = -1e9, vol = -1, song = null, starts = 0;
     function ensure(sg) {
       if (!el) {
         el = document.createElement("audio");
@@ -251,7 +261,7 @@
     function resumeCtx() { var c = gain && gain.context; if (c && c.state !== "running") { try { c.resume(); } catch (e) { /* ignore */ } } }
     function play() { var p = el.play(); if (p && p.catch) p.catch(function () { /* 被瀏覽器拒絕時保持安靜 */ }); }
     return {
-      /** 必須在「開始刷牙」的點擊裡呼叫（iOS 需要使用者手勢） */
+      /** 必須在「開始刷牙」的點擊裡呼叫（iOS 需要使用者手勢）；預備倒數時已經開始，2 分鐘開始時不會重新播放 */
       start: function (sg) {
         playing = false;
         song = sg;
@@ -262,6 +272,7 @@
         resumeCtx();
         try { el.currentTime = 0; } catch (e) { /* ignore */ }
         playing = true;
+        starts++;
         duckAt = -1e9;
         apply(level(0), true);
         play();
@@ -283,7 +294,7 @@
       info: function () {
         return el ? { exists: true, src: el.getAttribute("src"), paused: el.paused, currentTime: el.currentTime, duration: el.duration,
           loop: el.loop, playing: playing, target: vol, gain: gain ? gain.gain.value : el.volume, webAudio: !!gain,
-          ctx: gain ? gain.context.state : null, song: song && song.title } : { exists: false, playing: false, song: song && song.title };
+          ctx: gain ? gain.context.state : null, song: song && song.title, starts: starts } : { exists: false, playing: false, song: song && song.title, starts: starts };
       }
     };
   })();
@@ -293,7 +304,10 @@
   function requestWake() {
     try {
       if ("wakeLock" in navigator && document.visibilityState === "visible") {
-        navigator.wakeLock.request("screen").then(function (l) { wakeLock = l; }).catch(function () {});
+        navigator.wakeLock.request("screen").then(function (l) {
+          if (brush.running && document.visibilityState === "visible") wakeLock = l;
+          else { try { l.release(); } catch (e) { /* ignore */ } } // 已停止 / 已放到背景
+        }).catch(function () {});
       }
     } catch (e) { /* ignore */ }
   }
@@ -306,46 +320,172 @@
   var RING_C = 2 * Math.PI * 96;
   $("ring-fg").style.strokeDasharray = RING_C;
   var SLIDE_MS = 10000; // 幻燈片：每 10 秒（刷牙時間）換一張
-  var brush = { running: false, startTs: 0, acc: 0, seg: null, zone: -1, raf: 0, iv: 0, plan: null, slides: [], slide: -1, finishTimer: 0, timeText: "" };
+  var READY_MS = 10000; // 預備倒數 10 秒（不計入 2 分鐘）
+  var brush = { running: false, phase: "", readyTs: 0, rAcc: 0, rSeg: null, readyNum: 0, startTs: 0, acc: 0, seg: null, zone: -1, raf: 0, iv: 0,
+                plan: null, slides: [], slide: -1, finishTimer: 0, goTimer: 0, timeText: "" };
   var reducedMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   var fx = window.MomokeBrushFx.create({ fx: $("brush-fx"), reduced: reducedMotion });
   window.addEventListener("resize", function () { fx.invalidate(); });
 
+  /** 刷牙經過時間（預備倒數時為 0） */
   function elapsed() {
+    if (brush.phase !== "brush") return 0;
     return brush.acc + (brush.seg != null ? (Date.now() - brush.seg) * SPEED : 0);
   }
+  /** 預備倒數經過時間 */
+  function readyElapsed() {
+    return brush.rAcc + (brush.rSeg != null ? (Date.now() - brush.rSeg) * SPEED : 0);
+  }
+  function readyOn() { return settings.ready !== false; }
+
+  // 倒數時預覽「這次會不會得到卡片、是哪一張」：在 state 的副本上計算，不保存（倒數時按停止不影響任何資料）。
+  // 未有已決定的卡片時抽出的預覽卡記在記憶體，同一個進度下再按開始會是同一張，真正開始刷牙時才寫入 pending。
+  var teaser = null;
+  function progressKey() { return state.collected.map(function (c) { return c.id; }).join(","); }
+  function previewPlan(ts) {
+    var tmp = JSON.parse(JSON.stringify(state));
+    if (!L.validPending(tmp) && teaser && teaser.key === progressKey()) tmp.pending = { id: teaser.id, n: tmp.collected.length };
+    var p = L.planBrush(tmp, ts, Math.random);
+    if (p.earn) teaser = { key: progressKey(), id: p.id };
+    return p;
+  }
+  /** 倒數時以「倒數開始」和「預計開始刷牙」兩個時間中較有利的一個預覽（見 logic.js 的 brushStartTs） */
+  function readyPreview() {
+    var projected = now() + Math.max(0, READY_MS - readyElapsed()) / SPEED;
+    return previewPlan(L.brushStartTs(state, brush.readyTs, projected));
+  }
+  function samePlan(a, b) { return !!a && !!b && a.earn === b.earn && a.id === b.id && a.reason === b.reason && a.slot === b.slot; }
+  function startFx() {
+    fx.start(brush.plan.earn ? { target: $("reveal"), foam: $("foam") } : { target: $("slide-frame"), foam: null });
+  }
+
+  /** 按「開始刷牙」（使用者手勢）：音樂、螢幕常亮從這裡開始；預備時間開啟時先倒數 10 秒 */
   function startBrush() {
     clearTimeout(brush.finishTimer);
+    clearTimeout(brush.goTimer);
+    var countdown = readyOn();
     brush.running = true;
-    brush.startTs = now();
-    // 開始時決定這次會不會得到卡片、是哪一張（保存在 localStorage；中途停止下次沿用）
-    brush.plan = L.planBrush(state, brush.startTs, Math.random);
-    save();
-    brush.acc = 0;
-    brush.seg = Date.now();
+    brush.phase = countdown ? "ready" : "brush";
+    brush.readyTs = now();
+    brush.rAcc = 0; brush.rSeg = Date.now(); brush.readyNum = 10;
+    brush.acc = 0; brush.seg = null;
     brush.zone = -1;
     brush.slide = -1;
     brush.timeText = "";
     document.querySelectorAll(".tq").forEach(function (q) { q.classList.remove("active", "done"); });
     $("brush-paused").hidden = true;
+    $("ready-paused").hidden = true;
     $("btn-stop").hidden = false;
-    $("screen-brush").classList.remove("finished");
-    setupStage(brush.plan);
+    $("brush-time").textContent = "2:00";
+    $("ring-fg").style.strokeDashoffset = RING_C;
+    $("zone-text").textContent = "請刷" + ZONES[0];
+    $("brush-bubble").textContent = CHEERS[0];
+    var sb = $("screen-brush");
+    sb.classList.remove("finished");
+    sb.classList.toggle("ready", countdown);
+    var rc = $("ready-count");
+    rc.classList.remove("go");
+    rc.hidden = !countdown;
+    $("ready-num").textContent = "10";
+    // 倒數時只是預覽（不保存）；沒有倒數時立即決定
+    brush.plan = countdown ? readyPreview() : null;
+    if (countdown) setupStage(brush.plan);
     go("brush");
-    // 泡泡層在第一次畫面更新前就畫好（卡片不會先露出來）
-    fx.start(brush.plan.earn ? { target: $("reveal"), foam: $("foam") } : { target: $("slide-frame"), foam: null });
-    fx.render(0, performance.now());
-    sound.start();
     music.start(L.songFor(state));
     requestWake();
-    tick();
+    if (countdown) {
+      // 泡泡層在第一次畫面更新前就畫好（卡片不會先露出來）
+      startFx();
+      if (!brush.plan.earn && brush.slides.length) { showSlide(0); brush.slide = 0; }
+      fx.ready(performance.now());
+      popNum();
+      sound.tick(10);
+    } else {
+      beginBrushing(false);
+    }
     clearInterval(brush.iv);
-    brush.iv = setInterval(tick, 200);
+    brush.iv = setInterval(step, 200);
     loop();
   }
 
+  /** 倒數完畢 / 按「我準備好了」/ 沒有預備時間：真正開始 2 分鐘 */
+  function beginBrushing(afterCountdown) {
+    var startTs = now();
+    // 時段和日子：倒數開始或真正開始刷牙，取對小朋友較有利的一個
+    var ts = L.brushStartTs(state, brush.readyTs, startTs);
+    if (!L.validPending(state) && L.canEarn(state, ts) && teaser && teaser.key === progressKey()) {
+      state.pending = { id: teaser.id, n: state.collected.length }; // 倒數時預覽的那一張
+    }
+    var shown = brush.plan;
+    // 開始時決定這次會不會得到卡片、是哪一張（保存在 localStorage；中途停止下次沿用）
+    brush.plan = L.planBrush(state, ts, Math.random);
+    save();
+    brush.startTs = ts;
+    brush.phase = "brush";
+    brush.acc = 0;
+    brush.seg = Date.now();
+    brush.rSeg = null;
+    $("ready-paused").hidden = true;
+    $("screen-brush").classList.remove("ready");
+    if (!samePlan(shown, brush.plan)) {
+      // 預覽和真正的結果不同（例如在時段邊緣提早按「我準備好了」）：重新佈置卡片
+      setupStage(brush.plan);
+      startFx();
+    }
+    fx.render(0, performance.now());
+    if (afterCountdown) {
+      sound.go(); music.duck(); showGo(); fx.pop(true);
+    } else {
+      $("ready-count").hidden = true;
+      sound.start();
+    }
+    tick();
+  }
+
+  function popNum() {
+    var b = $("ready-bubble");
+    b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop");
+  }
+  function showGo() {
+    var rc = $("ready-count");
+    rc.hidden = false;
+    rc.classList.remove("go"); void rc.offsetWidth; rc.classList.add("go");
+    $("ready-num").textContent = "開始刷牙！";
+    popNum();
+    clearTimeout(brush.goTimer);
+    brush.goTimer = setTimeout(hideReady, 1500);
+  }
+  function hideReady() {
+    clearTimeout(brush.goTimer);
+    var rc = $("ready-count");
+    rc.hidden = true; rc.classList.remove("go");
+  }
+  function readyTick() {
+    var re = readyElapsed();
+    if (re >= READY_MS) { beginBrushing(true); return; }
+    var n = Math.max(1, Math.min(10, Math.ceil((READY_MS - re) / 1000)));
+    if (n !== brush.readyNum) {
+      brush.readyNum = n;
+      $("ready-num").textContent = String(n);
+      popNum();
+      sound.tick(n);
+      fx.pop(false);
+    }
+    music.update(0);
+  }
+  function step() {
+    if (!brush.running) return;
+    if (brush.phase === "ready") readyTick(); else tick();
+  }
+  $("btn-ready").addEventListener("click", function () {
+    if (!brush.running || brush.phase !== "ready") return;
+    music.resume();
+    beginBrushing(true);
+  });
+
   function setupStage(plan) {
     var reveal = $("reveal"), show = $("slideshow"), cap = $("brush-caption");
+    brush.slide = -1;
     var stage = $("brush-stage");
     if (plan.earn) {
       var item = L.byId[plan.id];
@@ -399,8 +539,10 @@
     cancelAnimationFrame(brush.raf);
     brush.raf = requestAnimationFrame(function (t) {
       if (!brush.running) return;
-      tick();
-      if (brush.running) { fx.render(Math.min(elapsed(), L.BRUSH_MS), t); loop(); }
+      step();
+      if (!brush.running) return;
+      if (brush.phase === "ready") fx.ready(t); else fx.render(Math.min(elapsed(), L.BRUSH_MS), t);
+      loop();
     });
   }
   function stopTimers() {
@@ -437,24 +579,39 @@
     }
     if (e >= L.BRUSH_MS) completeBrush();
   }
-  function cancelBrush() { stopTimers(); clearTimeout(brush.finishTimer); music.stop(); fx.stop(); }
+  function cancelBrush() {
+    stopTimers(); clearTimeout(brush.finishTimer); music.stop(); fx.stop();
+    brush.phase = ""; hideReady(); $("screen-brush").classList.remove("ready");
+  }
   $("btn-stop").addEventListener("click", function () { cancelBrush(); go("home"); });
 
   document.addEventListener("visibilitychange", function () {
     if (brush.running) {
+      var ready = brush.phase === "ready";
       if (document.visibilityState === "hidden") {
-        brush.acc = elapsed();
-        brush.seg = null;
-        $("brush-paused").hidden = false;
+        // 預備倒數和刷牙計時一樣會暫停
+        if (ready) { brush.rAcc = readyElapsed(); brush.rSeg = null; $("ready-paused").hidden = false; }
+        else { brush.acc = elapsed(); brush.seg = null; $("brush-paused").hidden = false; }
         music.pause();
         releaseWake();
       } else {
-        if (brush.seg == null) brush.seg = Date.now();
-        $("brush-paused").hidden = true;
+        if (ready) {
+          if (brush.rSeg == null) brush.rSeg = Date.now();
+          $("ready-paused").hidden = true;
+          // 暫停了一段時間後，預計開始刷牙的時間可能不同：需要時重新佈置卡片
+          var p = readyPreview();
+          if (!samePlan(p, brush.plan)) {
+            brush.plan = p; setupStage(p); startFx();
+            if (!p.earn && brush.slides.length) { showSlide(0); brush.slide = 0; }
+          }
+        } else {
+          if (brush.seg == null) brush.seg = Date.now();
+          $("brush-paused").hidden = true;
+        }
         music.resume();
         requestWake();
         loop();
-        tick();
+        step();
       }
     } else if (document.visibilityState === "visible" && current === "home") {
       renderHome();
@@ -466,6 +623,7 @@
 
   function completeBrush() {
     stopTimers();
+    hideReady();
     music.stop();      // 已在最後 3 秒淡出
     fx.finish();       // 泡泡全部刷走 + 星星
     document.querySelectorAll(".tq").forEach(function (q) { q.classList.remove("active"); q.classList.add("done"); });
@@ -745,15 +903,28 @@
     var days = Object.keys(state.days).filter(function (k) { var d = state.days[k]; return d.m || d.e; }).length;
     $("parent-info").textContent = "已收集 " + L.collectedIn(state, "s1").length + " / " + s1Total() + " 張卡片，共有 " + days + " 天的刷牙紀錄。";
     renderMusicToggle();
+    renderReadyToggle();
     $("parent").hidden = false;
   }
   function renderMusicToggle() {
     var on = settings.music, sg = L.songFor(state);
     $("toggle-music").setAttribute("aria-checked", on ? "true" : "false");
     $("toggle-music-text").textContent = on ? "開" : "關";
-    $("music-note").textContent = on ? "刷牙時會播放主題曲" + (sg && sg.title ? "《" + sg.title + "》" : "") + "，最後三秒慢慢變小聲。"
+    $("music-note").textContent = on ? "刷牙時會播放主題曲" + (sg && sg.title ? "《" + sg.title + "》" : "") + "（預備倒數時已經開始），刷牙最後三秒慢慢變小聲。"
                                      : "刷牙時不播放音樂（仍有提示音）。";
   }
+  function renderReadyToggle() {
+    var on = readyOn();
+    $("toggle-ready").setAttribute("aria-checked", on ? "true" : "false");
+    $("toggle-ready-text").textContent = on ? "開" : "關";
+    $("ready-note").textContent = on ? "按「開始刷牙」後先倒數十秒，讓小朋友準備好牙刷和牙膏（不計入兩分鐘）。"
+                                     : "按「開始刷牙」後立即開始計時。";
+  }
+  $("toggle-ready").addEventListener("click", function () {
+    if (readyOn()) settings.ready = false; else delete settings.ready;
+    saveSettings();
+    renderReadyToggle();
+  });
   $("toggle-music").addEventListener("click", function () {
     settings.music = !settings.music;
     saveSettings();
@@ -819,5 +990,7 @@
     window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
   }
   if (TEST) window.__momoke = { state: function () { return state; }, logic: L, go: go, elapsed: function () { return brush.running ? elapsed() : null; },
+    phase: function () { return brush.running ? brush.phase : null; }, readyLeft: function () { return brush.phase === "ready" ? READY_MS - readyElapsed() : null; },
+    plan: function () { return brush.plan; }, startTs: function () { return brush.startTs; },
     music: function () { return music.info(); }, settings: function () { return settings; }, foam: function () { return fx.coverage(); }, fx: function () { return fx.info(); } };
 })();

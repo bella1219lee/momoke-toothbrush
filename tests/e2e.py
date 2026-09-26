@@ -77,6 +77,24 @@ def reveal_info(page):
         pending: (window.__momoke.state().pending || {}).id || null,
         stored: (JSON.parse(localStorage.getItem('momoke-brush-state-v1') || '{}').pending || {}).id || null })""")
 
+def wait_brushing(page, timeout=20000):
+    """預備倒數結束、真正開始 2 分鐘"""
+    page.wait_for_function("window.__momoke.phase() === 'brush'", timeout=timeout)
+
+def ready_num(page):
+    return page.evaluate("document.getElementById('ready-num').textContent")
+
+def wake(page):
+    return page.evaluate("window.__wake")
+
+def stored(page):
+    return page.evaluate("localStorage.getItem('momoke-brush-state-v1')")
+
+def set_hidden(page, hidden):
+    v = "hidden" if hidden else "visible"
+    page.evaluate("""v => { Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => v});
+                         document.dispatchEvent(new Event('visibilitychange')); }""", v)
+
 def slot(page, sid):
     return text(page, f"#{sid}")
 
@@ -101,6 +119,10 @@ with sync_playwright() as p:
     browser = p.chromium.launch()
     ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, is_mobile=True,
                               has_touch=True, timezone_id="Asia/Hong_Kong", locale="zh-HK", accept_downloads=True)
+    # 螢幕常亮：記錄 wakeLock 的請求 / 釋放（Chromium 無頭模式沒有真正的 wake lock）
+    ctx.add_init_script("""(() => { const w = window.__wake = { req: 0, rel: 0, active: 0 };
+        Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: { request: () => { w.req++; w.active++;
+            let done = false; return Promise.resolve({ release: () => { if (!done) { done = true; w.rel++; w.active--; } return Promise.resolve(); } }); } } }); })()""")
     page = ctx.new_page()
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
@@ -123,6 +145,7 @@ with sync_playwright() as p:
     page.wait_for_selector("#screen-brush.active")
     f0 = foam(page)
     ok(f0 > 0.97, f"foam layer covers the card at the start ({f0:.3f})")
+    wait_brushing(page)
     ok(text(page, "#zone-text") == "請刷上排左邊", "first zone prompt 請刷上排左邊")
     m0 = music(page)
     ok(m0["exists"] and m0["src"] == "audio/s1_op.m4a" and m0["playing"] and m0["loop"] and m0["song"] == "捕萌少女", f"music 《捕萌少女》 starts on 開始刷牙 (loop on) ({m0})")
@@ -143,6 +166,7 @@ with sync_playwright() as p:
     page.click("#btn-start"); page.wait_for_selector("#screen-brush.active"); page.wait_for_timeout(300)
     r2 = reveal_info(page)
     ok(r2["id"] == r1["id"] and foam(page) > 0.95, "restart after stop (and reload) reuses the same pending card, foam restarts full")
+    wait_brushing(page)
     # ---- 3. visibility pause ----
     page.evaluate("""() => { Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'hidden'});
                          document.dispatchEvent(new Event('visibilitychange')); }""")
@@ -162,11 +186,85 @@ with sync_playwright() as p:
     page.click("#btn-stop")
     page.wait_for_selector("#screen-home.active")
 
+    # ---- 3b. 10-second get-ready countdown (real time, speed 1) ----
+    open_home(page, "2026-09-26T08:00", 1)
+    before = stored(page)
+    ok(json.loads(before)["pending"]["id"] == "s1-m-01", "3b: pending card s1-m-01 before the countdown")
+    page.evaluate("""() => { window.__nums = []; const n = document.getElementById('ready-num');
+        new MutationObserver(() => { const t = n.textContent; if (window.__nums[window.__nums.length - 1] !== t) window.__nums.push(t); })
+          .observe(n, { childList: true, characterData: true, subtree: true }); }""")
+    w0 = wake(page)
+    page.click("#btn-start")
+    page.wait_for_selector("#screen-brush.active")
+    ok(page.evaluate("window.__momoke.phase()") == "ready" and page.locator("#screen-brush.ready").count() == 1, "開始刷牙 opens the brushing screen in the get-ready phase")
+    ok(ready_num(page) == "10" and page.locator("#ready-num").is_visible(), "countdown starts at 10")
+    ok(text(page, "#ready-title") == "準備好牙刷和牙膏了嗎？" and page.locator("#ready-title").is_visible(), "get-ready text 準備好牙刷和牙膏了嗎？")
+    ok(page.locator("#btn-ready").is_visible() and text(page, "#btn-ready") == "我準備好了" and page.locator("#btn-stop").is_visible(), "我準備好了 and 停止 buttons shown during countdown")
+    ok(page.locator("#reveal").is_visible() and page.get_attribute("#reveal", "data-id") == "s1-m-01" and foam(page) > 0.99,
+       f"earning brush: pending card shown fully covered by foam during countdown ({foam(page):.3f})")
+    ok(page.locator("#brush-time").is_hidden() and page.locator(".teeth").is_hidden(), "timer ring / zone grid hidden during countdown")
+    m = music(page)
+    ok(m["playing"] and not m["paused"] and m["starts"] == 1 and abs(m["target"] - MUSIC_BASE) < 0.01, f"music 《捕萌少女》 starts at the countdown tap at normal level ({m['starts']}, {m['target']:.3f})")
+    ok(wake(page)["req"] > w0["req"], "wake lock requested at the countdown")
+    shot(page, "14_ready_10.png", 650)
+    page.wait_for_function("document.getElementById('ready-num').textContent === '6'", timeout=8000)
+    ok(page.evaluate("window.__momoke.elapsed()") == 0 and page.locator("#brush-time").inner_text() == "" and page.evaluate("document.getElementById('brush-time').textContent") == "2:00",
+       "timer does not run during countdown (elapsed 0, still 2:00)")
+    ok(stored(page) == before, "countdown does not write any state")
+    # hidden app pauses the countdown
+    set_hidden(page, True)
+    page.wait_for_timeout(200)
+    n1 = ready_num(page); left1 = page.evaluate("window.__momoke.readyLeft()"); page.wait_for_timeout(1500)
+    n2 = ready_num(page); left2 = page.evaluate("window.__momoke.readyLeft()")
+    ok(n1 == n2 and left1 == left2 and page.locator("#ready-paused").is_visible(), f"countdown pauses when the app is hidden ({n1} == {n2}, 暫停中 shown)")
+    ok(music(page)["paused"] and wake(page)["active"] == 0, "music paused and wake lock released while hidden during countdown")
+    set_hidden(page, False)
+    page.wait_for_timeout(300)
+    ok(page.locator("#ready-paused").is_hidden() and not music(page)["paused"] and wake(page)["active"] == 1, "countdown resumes (music + wake lock back)")
+    page.wait_for_function("document.getElementById('ready-num').textContent === '5'", timeout=8000)
+    shot(page, "15_ready_5.png", 650)
+    page.wait_for_selector("#ready-count.go", timeout=9000)
+    t_go = music(page)["currentTime"]
+    ok(page.evaluate("window.__momoke.phase()") == "brush" and text(page, "#ready-num") == "開始刷牙！", "countdown ends with 開始刷牙！ and brushing starts")
+    nums = page.evaluate("window.__nums")
+    ok(nums == ["10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "開始刷牙！"], f"countdown shows 10..1 then 開始刷牙！ ({nums})")
+    m = music(page)
+    ok(m["starts"] == 1 and m["currentTime"] > 9 and not m["paused"], f"music not restarted when the 2 minutes begin (still playing at {m['currentTime']:.1f} s, starts={m['starts']})")
+    ok(page.evaluate("window.__momoke.elapsed()") < 1500 and page.locator("#brush-time").is_visible() and text(page, "#zone-text") == "請刷上排左邊",
+       "2-minute timer starts from 2:00 after the countdown")
+    ok(json.loads(stored(page))["pending"]["id"] == "s1-m-01", "same pending card used for the brushing")
+    shot(page, "16_ready_go.png", 450)
+    page.wait_for_timeout(1400)
+    ok(text(page, "#brush-time") in ("1:59", "1:58", "1:57") and page.locator("#ready-count").is_hidden(), f"timer running, 開始刷牙！ overlay gone ({text(page, '#brush-time')})")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+    # stop during the countdown → home, nothing changed, same pending card next time
+    before = stored(page)
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active"); page.wait_for_timeout(1500)
+    ok(page.evaluate("window.__momoke.phase()") == "ready", "3b: in countdown again")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+    m = music(page)
+    ok(stored(page) == before and "○" in slot(page, "slot-m"), "停止 during countdown returns home with state unchanged")
+    ok(m["paused"] and not m["playing"] and m["currentTime"] == 0 and wake(page)["active"] == 0, "停止 during countdown stops the music and releases the wake lock")
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active")
+    ok(page.get_attribute("#reveal", "data-id") == "s1-m-01" and foam(page) > 0.99, "same pending card after stopping during countdown")
+    # skip button
+    starts0 = music(page)["starts"]
+    page.wait_for_timeout(1200)
+    page.click("#btn-ready")
+    ok(page.evaluate("window.__momoke.phase()") == "brush" and page.locator("#ready-count.go").count() == 1, "我準備好了 skips the rest of the countdown")
+    page.wait_for_timeout(1300)
+    m = music(page)
+    e = page.evaluate("window.__momoke.elapsed()")
+    ok(1000 < e < 2500 and m["starts"] == starts0 and m["currentTime"] > 2.0, f"after skip: timer running from 2:00 ({e} ms), music continues ({m['currentTime']:.1f} s)")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+    ok(json.loads(stored(page))["pending"]["id"] == "s1-m-01" and len(state(page)["collected"]) == 0, "3b: pending card still s1-m-01, no card counted")
+
     # ---- 4. morning brushing: foam cleared by the toothbrush in step with the zones (speed 10: 30 s = 3 s) ----
     page.goto(url("2026-09-26T08:00", 10))
     page.wait_for_selector("#screen-home.active")
     page.click("#btn-start")
     page.wait_for_selector("#screen-brush.active")
+    ok(page.evaluate("window.__momoke.phase()") == "ready" and abs(music(page)["target"] - MUSIC_BASE) < 0.01, "speed 10: countdown first, music at normal level (no fade)")
     def at(sec):  # wait until simulated brushing time ~sec
         page.wait_for_function(f"window.__momoke.elapsed() !== null && window.__momoke.elapsed() >= {sec * 1000}", timeout=20000)
     samples = []
@@ -236,6 +334,7 @@ with sync_playwright() as p:
 
     # ---- 5. second brushing in same window → slideshow, no card ----
     def slideshow_check():
+        wait_brushing(page)
         page.wait_for_timeout(600)
         ok(page.locator("#slideshow").is_visible() and page.locator("#reveal").is_hidden(), "non-earning brush shows slideshow instead of covered card")
         page.wait_for_function("document.querySelector('#slide-frame img') && document.querySelector('#slide-frame img').naturalWidth > 0")
@@ -457,6 +556,7 @@ with sync_playwright() as p:
     # ---- 17. slideshow placeholder when nothing collected ----
     page.evaluate("localStorage.clear()")
     def empty_check():
+        wait_brushing(page)
         page.wait_for_timeout(300)
         ok(page.locator("#slide-frame.friendly").is_visible() and "收集萌可卡片" in text(page, "#slide-frame"), "no cards yet: friendly placeholder in slideshow")
         page.screenshot(path=os.path.join(SHOTS, "07_slideshow_empty.png"))
@@ -470,16 +570,16 @@ with sync_playwright() as p:
     ok(page.evaluate("!!navigator.serviceWorker.controller"), "service worker registered and controlling page")
     for _ in range(40):
         cached = page.evaluate("caches.keys().then(ks => Promise.all(ks.map(k => caches.open(k).then(c => c.keys().then(r => [k, r.map(x => new URL(x.url).pathname)])))))")
-        v3 = dict(cached).get("momoke-brush-v4", [])
+        v3 = dict(cached).get("momoke-brush-v5", [])
         if len(v3) >= 93: break
         page.wait_for_timeout(250)
     print("  caches:", [(k, len(v)) for k, v in cached])
     all_imgs = page.evaluate("window.MOMOKE_DATA.items.map(i => i.img)")
     missing = [u for u in all_imgs if "/" + u not in v3]
-    ok(not missing and len(all_imgs) == 81, f"cache v4 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
-    ok(all(f in v3 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v4 holds core files")
-    ok("/audio/s1_op.m4a" in v3, "cache v4 holds the brushing music audio/s1_op.m4a")
-    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3") for k, _ in cached), "old caches removed")
+    ok(not missing and len(all_imgs) == 81, f"cache v5 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
+    ok(all(f in v3 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v5 holds core files")
+    ok("/audio/s1_op.m4a" in v3, "cache v5 holds the brushing music audio/s1_op.m4a")
+    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4") for k, _ in cached), "old caches removed")
     ctx.set_offline(True)
     stop_server()  # really offline: no server at all
     page.reload(); page.wait_for_selector("#screen-home.active")
@@ -592,6 +692,78 @@ with sync_playwright() as p:
     r = brush(page, "2026-11-12T08:00", speed=10, on_brush=still_check)
     ok(r == "capture" and text(page, "#capture-name") == "粉紅頭髮的哥哥" and "第5集" in text(page, "#capture-blurb"), "still capture: name/blurb from blurbs.json")
     shot(page, "05b_capture_still.png")
+
+    # ---- 21b. window edges: the kinder of countdown start / real start decides the window ----
+    TWO = """() => { const st = { schema: 2, days: {}, pending: null, collected: [{id:'s1-m-01',t:0,d:'2026-11-19',s:'m'},{id:'s1-p-01',t:0,d:'2026-11-19',s:'e'}] };
+                    localStorage.setItem('momoke-brush-state-v1', JSON.stringify(st)); }"""
+    page.evaluate(TWO)
+    def edge_morning():
+        ok(page.evaluate("window.__momoke.phase()") == "ready" and page.locator("#reveal").is_visible(), "11:59:59.5 countdown: card teaser (morning)")
+    r = brush(page, "2026-11-20T11:59:59.500", speed=10, on_brush=edge_morning)
+    st = state(page)
+    ok(r == "capture" and st["days"]["2026-11-20"]["mc"] and len(st["collected"]) == 3,
+       "countdown started 11:59:59.5, brushing began after 12:00 → still counts as morning (card earned)")
+    page.evaluate(TWO)
+    def edge_evening():
+        ok(page.evaluate("window.__momoke.phase()") == "ready" and page.locator("#reveal").is_visible(), "16:59:59.5 countdown: brushing will start after 17:00 → card teaser")
+    r = brush(page, "2026-11-20T16:59:59.500", speed=10, on_brush=edge_evening)
+    st = state(page)
+    ok(r == "capture" and st["days"]["2026-11-20"]["ec"] and not st["days"]["2026-11-20"].get("mc"),
+       "countdown 16:59:59.5, brushing began after 17:00 → counts as evening (card earned)")
+    # skip too early at the evening edge → brushing starts before 17:00 → no card, stage switches to slideshow
+    page.evaluate(TWO)
+    open_home(page, "2026-11-21T16:59:50", 1)
+    before = stored(page)
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active")
+    ok(page.locator("#reveal").is_visible(), "16:59:50 countdown (projected start 17:00): teaser card shown")
+    page.click("#btn-ready"); page.wait_for_timeout(300)
+    ok(page.locator("#slideshow").is_visible() and page.locator("#reveal").is_hidden() and "不是刷牙時段" in text(page, "#brush-caption"),
+       "skipped before 17:00 → outside window: stage switches to the slideshow")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+    ok(json.loads(stored(page)) == json.loads(before), "early skip + stop: no state change (no pending card written)")
+    # pending null: stopping the countdown keeps pending null; the same teaser card comes back in this session
+    open_home(page, "2026-11-22T08:00", 1)
+    before = stored(page)
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active")
+    tid = page.get_attribute("#reveal", "data-id")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+    ok(stored(page) == before and json.loads(stored(page))["pending"] is None, "no pending card yet: stop during countdown leaves pending null")
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active")
+    ok(page.get_attribute("#reveal", "data-id") == tid, f"… and the same teaser card shows again ({tid})")
+    page.click("#btn-ready"); page.wait_for_timeout(200)
+    ok(json.loads(stored(page))["pending"]["id"] == tid, "teaser card becomes the saved pending card when brushing starts")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+    # 03:59:59.5 with last evening's card already earned → counts as the new morning
+    page.evaluate("""() => { const st = { schema: 2, days: { '2026-11-22': { m: 1, e: 2, mc: 's1-m-01', ec: 's1-p-01', x: 0 } }, pending: null,
+        collected: [{id:'s1-m-01',t:0,d:'2026-11-22',s:'m'},{id:'s1-p-01',t:0,d:'2026-11-22',s:'e'}] };
+        localStorage.setItem('momoke-brush-state-v1', JSON.stringify(st)); }""")
+    r = brush(page, "2026-11-23T03:59:59.500", speed=10)
+    st = state(page)
+    ok(r == "capture" and st["days"]["2026-11-23"]["mc"] and len(st["collected"]) == 3, "03:59:59.5 countdown, last evening already earned → counts as the new morning")
+    # non-earning countdown shows the slideshow
+    open_home(page, "2026-11-23T14:00", 1)
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active")
+    page.wait_for_function("document.querySelector('#slide-frame img') && document.querySelector('#slide-frame img').naturalWidth > 0")
+    ok(page.evaluate("window.__momoke.phase()") == "ready" and page.locator("#slideshow").is_visible() and page.locator("#ready-num").is_visible(),
+       "non-earning countdown shows the slideshow with the countdown")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+
+    # ---- 21c. parent setting 預備時間 ----
+    open_parent(page)
+    ok(page.get_attribute("#toggle-ready", "aria-checked") == "true" and "十秒" in text(page, "#ready-note"), "parent area: 預備時間 defaults to 開")
+    page.click("#toggle-ready")
+    ok(page.get_attribute("#toggle-ready", "aria-checked") == "false"
+       and page.evaluate("JSON.parse(localStorage.getItem('momoke-brush-settings'))") == {"music": True, "ready": False}, "預備時間 off → saved {ready: false}")
+    page.click("#btn-parent-close")
+    page.click("#btn-start"); page.wait_for_selector("#screen-brush.active")
+    ok(page.evaluate("window.__momoke.phase()") == "brush" and page.locator("#ready-count").is_hidden() and music(page)["playing"], "預備時間 off: brushing starts immediately (music on)")
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    open_parent(page)
+    ok(page.get_attribute("#toggle-ready", "aria-checked") == "false", "預備時間 setting persists")
+    page.click("#toggle-ready")
+    ok(page.evaluate("JSON.parse(localStorage.getItem('momoke-brush-settings'))") == {"music": True}, "預備時間 back on")
+    page.click("#btn-parent-close")
 
     # ---- 22. layout: nothing overflows horizontally on 390px ----
     for scr in ["home", "album", "calendar"]:

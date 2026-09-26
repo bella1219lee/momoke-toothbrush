@@ -1,7 +1,7 @@
 /*
  * 萌可刷牙 — 核心規則（純邏輯，不碰 DOM，可在 Node 測試）
  *   - 一天：凌晨 04:00 至翌日 04:00（裝置本地時間）
- *   - 早上時段 04:00–12:00；晚上時段 17:00–04:00（以開始刷牙的時間判斷）
+ *   - 早上時段 04:00–12:00；晚上時段 17:00–04:00（以開始刷牙的時間判斷；有預備倒數時見 brushStartTs()）
  *   - 每次在時段內完整刷牙 2 分鐘 → 得到一張卡；每個時段最多一張，每天最多兩張
  *   - 漏刷只是少一張卡，不會重設任何進度
  *
@@ -210,6 +210,32 @@
     return { earn: true, id: id, slot: slot, day: key };
   }
 
+  /** 在 ts 開始的刷牙能否得到卡片（不改動 state、不抽卡） */
+  function canEarn(state, ts) {
+    var slot = slotOf(ts);
+    if (!slot) return false;
+    var day = state.days[dayKey(ts)];
+    if (day && day[SLOT_KEYS[slot].card]) return false;
+    return !!(validPending(state) || currentSeasonId(state));
+  }
+
+  /**
+   * 預備倒數（10 秒，不計入 2 分鐘）：用「按下開始刷牙（倒數開始）」readyTs 和「真正開始計時」startTs
+   * 之中對小朋友較有利的一個判斷時段和日子（不改動 state）：
+   *   1) 能得到卡片的優先（兩個都可以時用倒數開始的時間）；
+   *   2) 都不能得到卡片時，在刷牙時段內的優先（日曆仍會記錄這次刷牙）；
+   *   3) 否則用倒數開始的時間。
+   * 例：11:59:55 開始倒數 → 早上；16:59:55 開始倒數、17:00:05 開始刷 → 晚上；
+   *     03:59:55 開始倒數而昨晚已得到卡片 → 04:00:05 開始刷，算今天早上。
+   */
+  function brushStartTs(state, readyTs, startTs) {
+    if (startTs == null) startTs = readyTs;
+    var c = [readyTs, startTs], i;
+    for (i = 0; i < 2; i++) if (canEarn(state, c[i])) return c[i];
+    for (i = 0; i < 2; i++) if (slotOf(c[i])) return c[i];
+    return readyTs;
+  }
+
   function collect(state, id, ts, key, s) {
     state.collected.push({ id: id, t: ts, d: key, s: s || null });
     state.pending = null;
@@ -347,9 +373,13 @@
   /**
    * 家長設定（localStorage 鍵 momoke-brush-settings，另存，不影響 schema 2 的進度資料）：
    *   { music: true | false }   刷牙音樂，預設開啟
+   *   ready: false              關閉「預備時間」（開始刷牙前的 10 秒倒數）；預設開啟，開啟時不寫入這個鍵
    */
   function normalizeSettings(s) {
-    return { music: !(s && typeof s === "object" && s.music === false) };
+    var o = s && typeof s === "object" ? s : {};
+    var out = { music: o.music !== false };
+    if (o.ready === false) out.ready = false;
+    return out;
   }
 
   return {
@@ -359,6 +389,7 @@
     collectedSet: collectedSet, collectedIn: collectedIn, currentSeasonId: currentSeasonId,
     isSeasonComplete: isSeasonComplete, drawNextS1: drawNextS1, drawNext: drawNext,
     getDay: getDay, validPending: validPending, ensurePending: ensurePending, planBrush: planBrush,
+    canEarn: canEarn, brushStartTs: brushStartTs,
     recordBrush: recordBrush, cardsOnDay: cardsOnDay, migrateState: migrateState,
     songFor: songFor, normalizeSettings: normalizeSettings
   };

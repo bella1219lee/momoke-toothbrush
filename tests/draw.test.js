@@ -380,4 +380,44 @@ console.log("✓ 日子與時段");
   assert.deepStrictEqual(L.normalizeSettings({ music: "x" }), { music: true });
   console.log("✓ 刷牙音樂：每季可各有主題曲（第一季《捕萌少女》），家長設定預設開啟");
 }
+// ---- 預備倒數：時段邊緣取對小朋友較有利的時間、家長設定「預備時間」 ----
+{
+  const T = (str) => new Date(str).getTime();
+  const fresh = () => L.emptyState();
+  // 11:59:55 開始倒數、12:00:05 開始刷 → 早上
+  let st = fresh();
+  eq(L.brushStartTs(st, T("2026-09-26T11:59:55"), T("2026-09-26T12:00:05")), T("2026-09-26T11:59:55"), "11:59:55 倒數 → 算早上");
+  eq(L.planBrush(JSON.parse(JSON.stringify(st)), L.brushStartTs(st, T("2026-09-26T11:59:55"), T("2026-09-26T12:00:05")), rng(1)).slot, "morning");
+  // 16:59:55 開始倒數、17:00:05 開始刷 → 晚上
+  eq(L.brushStartTs(st, T("2026-09-26T16:59:55"), T("2026-09-26T17:00:05")), T("2026-09-26T17:00:05"), "16:59:55 倒數、17:00:05 開始 → 算晚上");
+  // 16:59:50 倒數但 16:59:55 就按「我準備好了」→ 兩個都在時段外 → 用倒數開始的時間（時段外）
+  eq(L.brushStartTs(st, T("2026-09-26T16:59:50"), T("2026-09-26T16:59:55")), T("2026-09-26T16:59:50"));
+  // 兩個都能得到卡片 → 用倒數開始的時間
+  eq(L.brushStartTs(st, T("2026-09-26T08:00:00"), T("2026-09-26T08:00:10")), T("2026-09-26T08:00:00"));
+  // 03:59:55：昨晚未得到卡 → 算昨晚；昨晚已得到卡 → 04:00:05 開始算今天早上
+  eq(L.dayKey(L.brushStartTs(st, T("2026-09-27T03:59:55"), T("2026-09-27T04:00:05"))), "2026-09-26", "03:59:55 倒數 → 昨晚");
+  st.collected.push({ id: "s1-m-01", t: 0, d: "2026-09-26", s: "e" });
+  st.days["2026-09-26"] = { m: null, e: 1, mc: null, ec: "s1-m-01", x: 0 };
+  const ts = L.brushStartTs(st, T("2026-09-27T03:59:55"), T("2026-09-27T04:00:05"));
+  eq(ts, T("2026-09-27T04:00:05"), "昨晚已得到卡 → 算今天早上");
+  eq(L.slotOf(ts), "morning"); eq(L.dayKey(ts), "2026-09-27");
+  // 早上已得到卡、11:59:55 倒數、12:00:05 開始：都得不到卡 → 在時段內的優先（倒數開始，日曆記早上）
+  st.days["2026-09-27"] = { m: 1, e: null, mc: "s1-p-01", ec: null, x: 0 };
+  st.collected.push({ id: "s1-p-01", t: 0, d: "2026-09-27", s: "m" });
+  eq(L.brushStartTs(st, T("2026-09-27T11:59:55"), T("2026-09-27T12:00:05")), T("2026-09-27T11:59:55"));
+  // 集齊後（得不到卡）16:59:55 倒數、17:00:05 開始 → 在時段內的一個（晚上，日曆有紀錄）
+  const all = fresh();
+  s1.forEach((it) => all.collected.push({ id: it.id, t: 0, d: null, s: null }));
+  eq(L.brushStartTs(all, T("2026-09-26T16:59:55"), T("2026-09-26T17:00:05")), T("2026-09-26T17:00:05"));
+  // canEarn 不改動 state（不抽卡）
+  const before = JSON.stringify(fresh());
+  const s0 = fresh(); L.canEarn(s0, T("2026-09-26T08:00")); L.brushStartTs(s0, T("2026-09-26T08:00"), T("2026-09-26T08:00:10"));
+  eq(JSON.stringify(s0), before, "brushStartTs / canEarn 不改動資料");
+  // 家長設定：預備時間預設開啟（不寫入），關閉時為 ready: false；刷牙音樂設定不受影響
+  assert.deepStrictEqual(L.normalizeSettings({ music: true, ready: false }), { music: true, ready: false });
+  assert.deepStrictEqual(L.normalizeSettings({ music: false, ready: true }), { music: false });
+  assert.deepStrictEqual(L.normalizeSettings({ ready: false }), { music: true, ready: false });
+  checks += 3;
+  console.log("✓ 預備倒數：時段邊緣以倒數開始 / 真正開始中較有利的時間判斷，不改動資料；預備時間設定預設開啟");
+}
 console.log(`全部測試通過（${checks} 項斷言）`);
