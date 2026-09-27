@@ -570,16 +570,16 @@ with sync_playwright() as p:
     ok(page.evaluate("!!navigator.serviceWorker.controller"), "service worker registered and controlling page")
     for _ in range(40):
         cached = page.evaluate("caches.keys().then(ks => Promise.all(ks.map(k => caches.open(k).then(c => c.keys().then(r => [k, r.map(x => new URL(x.url).pathname)])))))")
-        v3 = dict(cached).get("momoke-brush-v5", [])
-        if len(v3) >= 93: break
+        v6 = dict(cached).get("momoke-brush-v6", [])
+        if len(v6) >= 93: break
         page.wait_for_timeout(250)
     print("  caches:", [(k, len(v)) for k, v in cached])
     all_imgs = page.evaluate("window.MOMOKE_DATA.items.map(i => i.img)")
-    missing = [u for u in all_imgs if "/" + u not in v3]
-    ok(not missing and len(all_imgs) == 81, f"cache v5 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
-    ok(all(f in v3 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v5 holds core files")
-    ok("/audio/s1_op.m4a" in v3, "cache v5 holds the brushing music audio/s1_op.m4a")
-    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4") for k, _ in cached), "old caches removed")
+    missing = [u for u in all_imgs if "/" + u not in v6]
+    ok(not missing and len(all_imgs) == 81, f"cache v6 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
+    ok(all(f in v6 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v6 holds core files")
+    ok("/audio/s1_op.m4a" in v6, "cache v6 holds the brushing music audio/s1_op.m4a")
+    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4", "momoke-brush-v5") for k, _ in cached), "old caches removed")
     ctx.set_offline(True)
     stop_server()  # really offline: no server at all
     page.reload(); page.wait_for_selector("#screen-home.active")

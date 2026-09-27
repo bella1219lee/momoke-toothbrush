@@ -5,7 +5,7 @@
  * 要更換圖片：
  *   1. 把圖片放進 img/s1/、img/princess/ 或 img/stills/（檔名見 README.md）
  *   2. 在下面對應項目設定 img（例如 "img/stills/ep01_a.jpg"）；沒有圖片時為 null
- *   3. 把 sw.js 裡的 VERSION 加一（例如 "v4" → "v5"），讓已安裝的 App 更新快取
+ *   3. 把 sw.js 裡的 VERSION 加一（例如 "v5" → "v6"），讓已安裝的 App 更新快取
  * img 為 null 或圖片載入失敗時，App 會顯示「圖片準備中」的空白卡片。
  *
  * 欄位：
@@ -67,6 +67,7 @@
 
     items: [
     // ---- 24 萌可（圖片來自 img/s1/，名稱與介紹來自 manifest.json / blurbs.json）----
+    // s1-m-01 愛心萌可：2026-09-27 採用 manifest.json 記錄的官方第一季 render（Heartsping S1 Render 2），只縮放/壓縮。
     { id: "s1-m-01", season: "s1", type: "momoke", category: "royal", name: "愛心萌可", img: "img/s1/01_aixin.jpg", blurb: "善良又重感情，說話句尾會加「啾」！", princess: "s1-p-01" },
     { id: "s1-m-02", season: "s1", type: "momoke", category: "royal", name: "正正萌可", img: "img/s1/02_zhengzheng.jpg", blurb: "聰明認真，最喜歡讀書學習。", princess: "s1-p-02" },
     { id: "s1-m-03", season: "s1", type: "momoke", category: "royal", name: "勇氣萌可", img: "img/s1/03_yongqi.jpg", blurb: "無所畏懼，最喜歡運動！", princess: "s1-p-03" },
