@@ -417,7 +417,11 @@ console.log("✓ 日子與時段");
   assert.deepStrictEqual(L.normalizeSettings({ music: true, ready: false }), { music: true, ready: false });
   assert.deepStrictEqual(L.normalizeSettings({ music: false, ready: true }), { music: false });
   assert.deepStrictEqual(L.normalizeSettings({ ready: false }), { music: true, ready: false });
-  checks += 3;
+  // 首頁音樂：預設開啟（不寫入），關閉時為 homeMusic: false；與刷牙音樂、預備時間互不影響
+  assert.deepStrictEqual(L.normalizeSettings({ music: true, homeMusic: false }), { music: true, homeMusic: false });
+  assert.deepStrictEqual(L.normalizeSettings({ music: false, homeMusic: true, ready: false }), { music: false, ready: false });
+  assert.deepStrictEqual(L.normalizeSettings({ homeMusic: "x" }), { music: true });
+  checks += 6;
   console.log("✓ 預備倒數：時段邊緣以倒數開始 / 真正開始中較有利的時間判斷，不改動資料；預備時間設定預設開啟");
 }
 console.log(`全部測試通過（${checks} 項斷言）`);

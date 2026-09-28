@@ -374,11 +374,13 @@
    * 家長設定（localStorage 鍵 momoke-brush-settings，另存，不影響 schema 2 的進度資料）：
    *   { music: true | false }   刷牙音樂，預設開啟
    *   ready: false              關閉「預備時間」（開始刷牙前的 10 秒倒數）；預設開啟，開啟時不寫入這個鍵
+   *   homeMusic: false          關閉「首頁音樂」（主頁循環播放主題曲）；預設開啟，開啟時不寫入這個鍵
    */
   function normalizeSettings(s) {
     var o = s && typeof s === "object" ? s : {};
     var out = { music: o.music !== false };
     if (o.ready === false) out.ready = false;
+    if (o.homeMusic === false) out.homeMusic = false;
     return out;
   }
 

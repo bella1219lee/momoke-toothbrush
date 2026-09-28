@@ -1,6 +1,6 @@
 # 萌可刷牙（奇妙萌可刷牙獎勵 PWA）
 
-給小朋友用的刷牙獎勵 App：按「開始刷牙」後先有 10 秒預備倒數（準備牙刷和牙膏），然後在早上或晚上的刷牙時段完整刷牙 2 分鐘，每次都能得到一張奇妙萌可卡片（刷牙時牙刷會把蓋著卡片的泡泡慢慢刷走，同時播放第一季主題曲《捕萌少女》），收進畫冊。
+給小朋友用的刷牙獎勵 App：按「開始刷牙」後先有 10 秒預備倒數（準備牙刷和牙膏），然後在早上或晚上的刷牙時段完整刷牙 2 分鐘，每次都能得到一張奇妙萌可卡片（刷牙時牙刷會把蓋著卡片的泡泡慢慢刷走，同時播放第一季主題曲《捕萌少女》），收進畫冊。主頁會小聲循環播放主題曲（首頁音樂），家長一打開 App 就知道有沒有聲音。
 純靜態網站（HTML / CSS / 原生 JS），沒有建置步驟、沒有框架、沒有後端。所有資料只存在裝置的 localStorage。
 Service worker 會快取所有檔案，第一次載入後可離線使用。
 
@@ -12,7 +12,7 @@ styles.css              樣式（粉紅/紫色、大按鈕、safe-area）
 data.js                 ★ 卡片資料（唯一資料來源：萌可 / 公主 / 劇照 / 季度設定）
 logic.js                規則（日子、時段、抽卡順序、捕捉、每季主題曲、家長設定），可在 Node 測試
 brushfx.js              刷牙動畫（泡泡層 canvas、牙刷、小泡泡、星星、預備倒數的泡泡和閃光），路線計算可在 Node 測試
-app.js                  介面、預備倒數、計時器、聲音、刷牙音樂、畫冊、日曆、家長區
+app.js                  介面、預備倒數、計時器、聲音、首頁 / 刷牙音樂（含 iOS 聲音自動恢復）、畫冊、日曆、家長區
 sw.js                   Service worker（版本化快取，VERSION 常數）
 manifest.webmanifest    PWA 設定（名稱「萌可刷牙」、standalone）
 icons/                  apple-touch-icon.png（180）、icon-192.png、icon-512.png（由 01_aixin.jpg 縮放）
@@ -22,7 +22,7 @@ audio/s1_op.m4a         第一季主題曲《捕萌少女》（刷牙音樂，�
 img/stills/             52 張劇照 ep01_a.jpg … ep26_b.jpg（由 s1_stills_v2/ 縮放至 800×450 以內、JPEG 85，保持比例）
 tools/prepare_images.py 重新產生 img/s1、img/princess、img/stills 和 icons 的腳本（只縮放 / 壓縮 / 以白色補成正方形）
 tests/draw.test.js      Node 測試：抽卡順序模擬 20000 次 + 使用模擬 3000 次 + 得卡規則 + 舊資料轉換 + 泡泡路線覆蓋 + 音樂資料 + 預備倒數的時段邊緣
-tests/e2e.py            Playwright 瀏覽器端對端測試（iPhone 390×844）
+tests/e2e.py            Playwright 瀏覽器端對端測試（iPhone 390×844），包括首頁音樂和模擬壞掉的 AudioContext 自動重建
 screenshots/            測試截圖
 ```
 
@@ -35,7 +35,7 @@ screenshots/            測試截圖
 
 注意：iPhone 側邊靜音鍵開啟時，Web Audio 提示音可能不會發聲（這是 iOS 的行為）；刷牙音樂開啟時一般不受影響（見「刷牙音樂」）。
 
-## 規則（2026-09-27 起，sw.js VERSION = "v6"）
+## 規則（2026-09-27 起；目前 sw.js VERSION = "v7"）
 
 - 「一天」由凌晨 04:00 至翌日 04:00（裝置本地時間）。
 - 早上時段 04:00–12:00；晚上時段 17:00–04:00。以**開始刷牙的時間**判斷時段和日子；
@@ -73,6 +73,32 @@ screenshots/            測試截圖
   設定存在 `momoke-brush-settings`：關閉時為 `{ "music": true, "ready": false }`，開啟時不寫入 `ready`。
 - 測試用 `speed` 參數同樣加快倒數（例如 `speed=10` 時倒數 1 秒）。
 
+## 首頁音樂（v7 新增）
+
+- 在主頁以**較小的音量**（30%，刷牙時是 55%）循環播放目前季度的主題曲（跟刷牙音樂同一首：`songFor()`，第一季《捕萌少女》），
+  不淡出、不降低。目的是家長打開 App 時立即聽到聲音是否正常，不用等到刷牙才發現沒有聲音。
+- iOS 只允許在使用者手勢內開始播放：顯示主頁時先試一次；被拒絕的話，**輕觸主頁任何地方**（pointerdown / touchend / click）就會開始。
+  App 放到背景 / 鎖機時暫停；回到前景（visibilitychange / pageshow）時再試，iOS 上通常要再輕觸一下主頁。
+- 按「開始刷牙」改播刷牙音樂（由頭開始，音量、降低、淡出的邏輯跟以前一樣）。
+- 進入畫冊、日曆或家長區時停止；回到主頁（刷牙完成或停止後、從畫冊 / 日曆返回、關閉家長區）時繼續播放（iOS 上可能要輕觸一下）。
+- 家長區「首頁音樂」：開 / 關（預設開啟），與「刷牙音樂」分開。設定存在 `momoke-brush-settings`：關閉時寫入 `"homeMusic": false`，
+  開啟時不寫入（舊設定沒有這個鍵 = 開啟，不需要轉換）。
+
+## 聲音自動恢復（iOS 鎖機後沒有聲音）
+
+- 問題：音樂的 `<audio>` 經 `createMediaElementSource` + GainNode 接到共用的 AudioContext（iOS 不理會 `audio.volume`），
+  提示音也用同一個 context。iPhone 鎖機一段時間後，iOS 會把 context 變成 `interrupted` / `suspended`，而 `resume()` 經常永遠不成功，
+  於是所有聲音都沒有了，要強制關閉 App 才會恢復。
+- 做法（`app.js` 的 `music.gesture()`）：每次想播放聲音的手勢（輕觸主頁、開始刷牙、我準備好了、輕觸刷牙畫面）都檢查 context：
+  1. `closed` / `interrupted`：立即（仍在手勢內）重建；
+  2. 其他未在 `running`：先 `resume()`，約 0.4 秒後仍未 `running`（或 `currentTime` 沒有前進）就重建。
+     用短的 `setTimeout` 而不是等 `resume()` 的 promise，因為 WebKit 會把使用者手勢帶進 1 秒內的計時器，新的 `<audio>` 仍可以 `play()`。
+- 重建：盡量 `close()` 舊的 context，建立新的 AudioContext；`createMediaElementSource` 每個 `<audio>` 只可以用一次，
+  所以移除舊的 `<audio>`，建立新的（同一首歌、保留播放位置）接到新的 context。提示音之後也用新的 context。
+- 不支援 Web Audio、或連續重建仍失敗時，音樂改用普通 `<audio>` 播放（iOS 上不能調音量，刷牙 2:00 時直接停止）。
+- 同時設定 `navigator.audioSession.type = "playback"`（iOS 17+）。
+- 這些都不會改動進度資料。
+
 ## 刷牙動畫（brushfx.js）
 
 - 只用 canvas 畫簡單圖形：泡泡、牙刷、小泡泡、星星。**不畫任何萌可/樂美角色**，角色只出現在真正的卡片圖片。
@@ -97,10 +123,10 @@ screenshots/            測試截圖
 - 在「開始刷牙」的點擊裡（即倒數開始時）開始播放（iOS 需要使用者手勢），使用 `<audio loop>`；音量經 Web Audio 的 GainNode 控制
   （`createMediaElementSource`，因為 iOS 不理會 `audio.volume`）：平時 55% 音量，區域提示音響起時暫時降低，最後 3 秒淡出。
   不支援 Web Audio 時改用 `audio.volume`（iOS 上則在 2:00 直接停止）。
-- 計時或倒數暫停（App 放到背景 / 鎖機）時音樂暫停，回來時一起繼續；按「停止」（包括倒數時）時停止並回到開頭。
+- 計時或倒數暫停（App 放到背景 / 鎖機）時音樂暫停，回來時一起繼續；按「停止」（包括倒數時）時停止並回到開頭，回到主頁後改播首頁音樂（見下面）。
 - iOS 注意事項：`<audio>` 播放一般不受側邊靜音鍵影響；iOS 17 以上另外把 `navigator.audioSession.type` 設為 `"playback"`，
   讓經 Web Audio 輸出的音樂和提示音在靜音鍵開啟時也會發聲。音量由手機音量鍵控制。
-  如果 iOS 在回到前景後暫停了音訊，輕觸刷牙畫面就會恢復。音樂以真實時間播放，測試用的 `speed` 參數只加快計時和動畫。
+  如果 iOS 在回到前景後暫停了音訊，輕觸刷牙畫面就會恢復（需要時自動重建音訊，見「聲音自動恢復」）。音樂以真實時間播放，測試用的 `speed` 參數只加快計時和動畫。
 - 家長區可以關閉「刷牙音樂」（預設開啟），設定存在 localStorage 鍵 `momoke-brush-settings`（`{ "music": true }`），
   與進度資料分開（進度資料格式不變，不需要轉換）。
 - 每季可以有自己的歌：`data.js` → `seasons[].music.op`（`src`、`type`、`title`、`duration`）。
@@ -166,7 +192,7 @@ App 已上線，裝置上可能已有舊資料。第一次開啟新版時自動�
    ```
    （`blurb` 可以按需要修改；**不要改 `id`**，已收集的紀錄靠 id 對應。）
 
-3. 打開 `sw.js`，把 `VERSION` 加一（目前是 `"v6"`，下次改成 `"v7"`，如此類推）。
+3. 打開 `sw.js`，把 `VERSION` 加一（目前是 `"v7"`，下次改成 `"v8"`，如此類推）。
 4. 重新上傳整個資料夾。iPhone 上的 App 會在下次開啟時下載新圖片（可能要關掉 App 再開一次）。
 
 ## ★ 更換劇照（52 張）
@@ -207,11 +233,14 @@ App 已上線，裝置上可能已有舊資料。第一次開啟新版時自動�
 - 匯出備份：下載 JSON 檔（iPhone 上會開啟分享選單，可選「儲存到檔案」）。
 - 匯入備份：選擇之前匯出的 JSON 檔，會取代目前資料。
 - 刷牙音樂：開 / 關（預設開啟，存在 `momoke-brush-settings`）。
+- 首頁音樂：開 / 關（預設開啟；主頁小聲循環播放主題曲，見「首頁音樂」）。
 - 預備時間：開 / 關（預設開啟；開始刷牙前倒數 10 秒）。
-- 重設所有資料：確認兩次後清除進度（刷牙音樂的設定保留）。
+- 重設所有資料：確認兩次後清除進度（家長設定保留）。
+- 家長區內容比螢幕高時可以上下捲動。
 
 - 匯入可接受新格式（schema 2）和舊格式（schema 1）的備份，舊格式會自動轉換。
-- 備份檔另有 `settings`（例如 `{ "music": false }` 或 `{ "music": true, "ready": false }`）；匯入時一併還原，舊備份沒有 `settings` 則保持目前設定。
+- 備份檔另有 `settings`（例如 `{ "music": false }`、`{ "music": true, "ready": false }` 或 `{ "music": true, "homeMusic": false }`）；匯入時一併還原，
+  舊備份沒有 `settings` 則保持目前設定；舊備份的 `settings` 沒有 `homeMusic` 時首頁音樂為開啟。
 
 資料存在 localStorage，鍵名 `momoke-brush-state-v1`（鍵名不變，內容為 schema 2，格式見 `logic.js` 開頭註解）。
 

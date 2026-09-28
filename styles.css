@@ -339,8 +339,9 @@ img { -webkit-user-drag: none; }
 .locked-card { position: relative; z-index: 2; width: 100%; margin: 0 0 18px; padding: 18px; border-radius: 24px; background: #efe7f7; color: #9c88b3; font-size: 24px; font-weight: 900; display: flex; align-items: center; justify-content: center; gap: 10px; border: 3px dashed #d5c4ea; }
 
 /* ---------- 家長區 ---------- */
-.modal { position: fixed; inset: 0; z-index: 80; background: rgba(70,40,90,.45); display: flex; align-items: center; justify-content: center; padding: calc(var(--sat) + 20px) 20px calc(var(--sab) + 20px); }
-.modal-box { width: 100%; max-width: 380px; background: #fff; border-radius: 26px; padding: 20px 18px; text-align: center; box-shadow: 0 16px 40px rgba(0,0,0,.2); }
+/* 內容比螢幕高時可以上下捲動（margin: auto 在內容較短時仍然置中） */
+.modal { position: fixed; inset: 0; z-index: 80; background: rgba(70,40,90,.45); display: flex; align-items: flex-start; justify-content: center; padding: calc(var(--sat) + 20px) 20px calc(var(--sab) + 20px); overflow-y: auto; overscroll-behavior: contain; }
+.modal-box { margin: auto; width: 100%; max-width: 380px; background: #fff; border-radius: 26px; padding: 20px 18px; text-align: center; box-shadow: 0 16px 40px rgba(0,0,0,.2); }
 .modal-box h2 { margin: 0 0 6px; color: var(--purple-d); font-size: 26px; }
 .parent-info { font-size: 17px; color: var(--ink-soft); margin: 4px 0 10px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 2px 2px; padding: 10px 14px; border-radius: 20px; background: #f6efff; }

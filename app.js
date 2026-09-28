@@ -74,11 +74,12 @@
   function go(name) {
     if (name !== "brush" && brush.running) cancelBrush();
     if (name !== "brush" && current === "brush") fx.stop();
+    if (name !== "home" && name !== "brush") music.stopHome(); // 畫冊、日曆等畫面不播主頁音樂
     document.querySelectorAll(".screen").forEach(function (s) { s.classList.remove("active"); });
     $("screen-" + name).classList.add("active");
     current = name;
     window.scrollTo(0, 0);
-    if (name === "home") renderHome();
+    if (name === "home") { renderHome(); homeMusic(); }
     if (name === "album") renderAlbum();
     if (name === "calendar") { calMonth = null; renderCalendar(); }
   }
@@ -164,34 +165,71 @@
   });
   $("btn-album").addEventListener("click", function () { go("album"); });
   $("btn-calendar").addEventListener("click", function () { go("calendar"); });
-  $("btn-start").addEventListener("click", function () { sound.unlock(); startBrush(); });
+  $("btn-start").addEventListener("click", function () { music.gesture(); sound.unlock(); startBrush(); });
+
+  // ---------- 主頁音樂 ----------
+  // 在主頁循環播放目前季度的主題曲（比刷牙時小聲），家長一打開 App 就知道有沒有聲音。
+  // iOS 只允許在使用者手勢內開始播放：顯示主頁時先試一次，被拒絕的話，輕觸主頁任何地方就會開始。
+  function homeMusicOn() { return settings.homeMusic !== false; }
+  function homeMusic() {
+    if (current !== "home" || !$("parent").hidden || brush.running) return;
+    if (homeMusicOn()) music.home(L.songFor(state)); else music.stopHome();
+  }
+  // pointerdown 跟 touchend / click 都聽：iOS 以 touchend / click 作為可以播放聲音的手勢（重複呼叫不會重新播放）
+  ["pointerdown", "touchend", "click"].forEach(function (ev) {
+    $("screen-home").addEventListener(ev, function (e) {
+      // 開始刷牙會自己處理音樂；畫冊、日曆會停止主頁音樂，不用先開始
+      if (e.target.closest && e.target.closest("#btn-start, #btn-album, #btn-calendar, #home-collect")) return;
+      if (current !== "home" || !$("parent").hidden || !homeMusicOn()) return;
+      music.gesture();
+      homeMusic();
+    }, { passive: true });
+  });
 
   // ---------- 聲音（Web Audio 合成，不需音效檔） ----------
+  // 全個 App 共用一個 AudioContext（提示音和音樂的 GainNode 都用它）。
+  // iOS workaround: after the phone is locked / the PWA is backgrounded, iOS may leave the context
+  // 'interrupted' or 'suspended' and resume() never succeeds → total silence. renew() discards it and
+  // creates a fresh one; music.gesture() (below) decides when to do that.
   var sound = (function () {
     var ctx = null;
-    function get() {
-      if (!ctx) {
-        var C = window.AudioContext || window.webkitAudioContext;
-        if (!C) return null;
-        try { ctx = new C(); } catch (e) { return null; }
-      }
-      if (ctx.state === "suspended") { try { ctx.resume(); } catch (e) { /* ignore */ } }
+    function create() {
+      var C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      try { ctx = new C(); } catch (e) { ctx = null; }
       return ctx;
+    }
+    function get() {
+      if (!ctx) create();
+      if (ctx && ctx.state === "suspended") { try { var p = ctx.resume(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* ignore */ } }
+      return ctx;
+    }
+    /** 棄用目前的 AudioContext（盡量 close()），建立新的 */
+    function renew() {
+      var old = ctx;
+      ctx = null;
+      if (old && old.state !== "closed") { try { var p = old.close(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* ignore */ } }
+      return create();
     }
     function tone(freq, at, dur, type, vol) {
       var c = get(); if (!c) return;
-      var t0 = c.currentTime + at;
-      var o = c.createOscillator(), g = c.createGain();
-      o.type = type || "sine";
-      o.frequency.setValueAtTime(freq, t0);
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(vol || 0.18, t0 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      o.connect(g); g.connect(c.destination);
-      o.start(t0); o.stop(t0 + dur + 0.05);
+      try {
+        var t0 = c.currentTime + at;
+        var o = c.createOscillator(), g = c.createGain();
+        o.type = type || "sine";
+        o.frequency.setValueAtTime(freq, t0);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(vol || 0.18, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.connect(g); g.connect(c.destination);
+        o.start(t0); o.stop(t0 + dur + 0.05);
+      } catch (e) { /* 已關閉的 context：保持安靜 */ }
     }
     return {
       context: get,
+      /** 目前的 AudioContext（不建立、不 resume） */
+      peek: function () { return ctx; },
+      renew: renew,
       unlock: function () { var c = get(); if (c) tone(1, 0, 0.01, "sine", 0.0002); },
       // 播放音樂時提示音大聲一點（同時音樂會暫時降低音量）
       chime: function (loud) { var k = loud ? 1.7 : 1; tone(1046.5, 0, 0.5, "triangle", 0.16 * k); tone(1568, 0.14, 0.7, "triangle", 0.13 * k); },
@@ -214,12 +252,18 @@
     };
   })();
 
-  // ---------- 刷牙音樂（<audio> 循環播放；有 Web Audio 時經 GainNode 控制音量和淡出） ----------
+  // ---------- 音樂（<audio> 循環播放；有 Web Audio 時經 GainNode 控制音量和淡出） ----------
+  // 兩種模式：「home」主頁背景音樂（較小聲、不淡出）；「brush」刷牙音樂（預備倒數開始、提示音時降低、最後 3 秒淡出）。
+  // 兩者都播放目前季度的主題曲（logic.js 的 songFor()）。
   var music = (function () {
-    var BASE = 0.55;       // 音樂音量（比滿音量低，讓提示音聽得清楚）
+    var BASE = 0.55;       // 刷牙音樂音量（比滿音量低，讓提示音聽得清楚）
+    var HOME = 0.3;        // 主頁音樂音量（比刷牙時小聲）
     var FADE_MS = 3000;    // 刷牙最後 3 秒淡出，2:00 剛好靜音（音量只看刷牙經過時間；預備倒數時 e = 0，保持正常音量）
     var DUCK = 0.45, DUCK_MS = 1400; // 提示音響起時音樂暫時降低
-    var el = null, gain = null, playing = false, duckAt = -1e9, vol = -1, song = null, starts = 0;
+    var CHECK_MS = 400;    // 手勢後等 resume() 多久才判斷 AudioContext 壞了
+    var el = null, gain = null, playing = false, mode = null, duckAt = -1e9, vol = -1, song = null, starts = 0;
+    var plain = false;     // true：不再經 Web Audio（重建多次仍失敗時的後備；iOS 上音量不能調）
+    var checkTimer = 0, streak = 0, rebuilds = 0;
     function ensure(sg) {
       if (!el) {
         el = document.createElement("audio");
@@ -231,8 +275,9 @@
         document.body.appendChild(el);
       }
       if (el.getAttribute("src") !== sg.src) el.setAttribute("src", sg.src);
-      if (!gain) {
+      if (!gain && !plain) {
         // iOS 不理會 audio.volume，所以用 Web Audio 的 GainNode 控制音量；不支援時改用 volume（iOS 上 2:00 直接停止）
+        // createMediaElementSource 每個 <audio> 只可以呼叫一次，所以換 AudioContext 時要換一個新的 <audio>（見 rebuild()）
         var c = sound.context();
         if (c && c.createMediaElementSource && c.createGain) {
           try {
@@ -244,57 +289,145 @@
         }
       }
     }
+    /** 換新的 AudioContext，並以新的 <audio> 重新接上（保留播放位置） */
+    function rebuild() {
+      rebuilds++;
+      streak++;
+      if (streak > 2) plain = true; // 連續重建仍失敗：音樂改用普通 <audio> 播放
+      var routed = !!gain, pos = 0;
+      sound.renew();
+      if (!el || !routed) return;   // 音樂沒有經舊的 context：只需換 context（提示音用）
+      try { pos = el.currentTime || 0; } catch (e) { /* ignore */ }
+      el.pause();
+      el.removeAttribute("src");
+      try { el.load(); } catch (e) { /* ignore */ }
+      el.remove();
+      el = null; gain = null; vol = -1;
+      if (!song) return;
+      ensure(song);
+      try { el.currentTime = pos; } catch (e) { /* ignore */ }
+      apply(target(), true);
+    }
+    function target() {
+      if (mode === "home") return HOME;
+      if (mode === "brush") return level(brushE());
+      return 0;
+    }
     function level(e) {
       var f = Math.max(0, Math.min(1, (L.BRUSH_MS - e) / FADE_MS));
       var d = (performance.now() - duckAt) < DUCK_MS ? DUCK : 1;
       return BASE * f * d;
     }
+    var lastE = 0;
+    function brushE() { return lastE; }
     function apply(v, now) {
       if (!el) return;
       if (gain) {
-        var c = gain.context, p = gain.gain, t = c.currentTime;
-        if (now) { p.cancelScheduledValues(t); p.setValueAtTime(v, t); }
-        else if (Math.abs(v - vol) > 0.002) { p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(v, t + 0.08); }
+        try {
+          var c = gain.context, p = gain.gain, t = c.currentTime;
+          if (now) { p.cancelScheduledValues(t); p.setValueAtTime(v, t); }
+          else if (Math.abs(v - vol) > 0.002) { p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(v, t + 0.08); }
+        } catch (e) { /* ignore */ }
       } else if (now || Math.abs(v - vol) > 0.002) { try { el.volume = v; } catch (e) { /* ignore */ } }
       vol = v;
     }
-    function resumeCtx() { var c = gain && gain.context; if (c && c.state !== "running") { try { c.resume(); } catch (e) { /* ignore */ } } }
-    function play() { var p = el.play(); if (p && p.catch) p.catch(function () { /* 被瀏覽器拒絕時保持安靜 */ }); }
+    function resumeCtx() {
+      var c = sound.peek();
+      if (c && c.state !== "running" && c.state !== "closed") { try { var p = c.resume(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* ignore */ } }
+    }
+    function play() { if (!el) return; var p = el.play(); if (p && p.catch) p.catch(function () { /* 被瀏覽器拒絕時保持安靜，下次輕觸再試 */ }); }
+    function session() {
+      // iOS 17+：以「播放」類型輸出，靜音鍵開啟時仍會發聲（<audio> 播放本來就不受靜音鍵影響）
+      try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) { /* ignore */ }
+    }
+    /**
+     * 每次想播放聲音的使用者手勢都呼叫（主頁輕觸、開始刷牙、我準備好了、輕觸刷牙畫面）。
+     * iOS 鎖機後 AudioContext 可能變成 'interrupted' / 'suspended' 而 resume() 永遠不成功：
+     *  - 'interrupted' / 'closed'：立即（仍在手勢內）換新的 context 和 <audio>；
+     *  - 其他未在 'running'：先 resume()，CHECK_MS 後仍未 'running'（或 currentTime 沒有前進）就重建。
+     * The check uses setTimeout (< 1 s) rather than the resume() promise because WebKit carries the
+     * user-gesture token into short timers, so play() on the rebuilt <audio> is still allowed.
+     */
+    function gesture() {
+      session();
+      var c = sound.peek();
+      if (c && (c.state === "closed" || c.state === "interrupted")) { rebuild(); c = sound.peek(); }
+      else resumeCtx();
+      if (playing && el && el.paused) play();
+      if (c && !checkTimer) {
+        var t0 = c.currentTime;
+        checkTimer = setTimeout(function () {
+          checkTimer = 0;
+          if (sound.peek() !== c || document.visibilityState === "hidden") return;
+          if (c.state !== "running" || c.currentTime <= t0) {
+            rebuild();
+            if (playing && el) play();
+          } else streak = 0;
+        }, CHECK_MS);
+      }
+    }
     return {
+      gesture: gesture,
       /** 必須在「開始刷牙」的點擊裡呼叫（iOS 需要使用者手勢）；預備倒數時已經開始，2 分鐘開始時不會重新播放 */
       start: function (sg) {
         playing = false;
-        song = sg;
+        mode = null;
+        song = sg || song;
         if (!settings.music || !sg) { if (el) el.pause(); return; }
         ensure(sg);
-        // iOS 17+：以「播放」類型輸出，靜音鍵開啟時仍會發聲（<audio> 播放本來就不受靜音鍵影響）
-        try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) { /* ignore */ }
+        session();
         resumeCtx();
         try { el.currentTime = 0; } catch (e) { /* ignore */ }
+        mode = "brush";
         playing = true;
         starts++;
         duckAt = -1e9;
+        lastE = 0;
         apply(level(0), true);
         play();
+      },
+      /** 主頁背景音樂（循環、較小聲）；已在播放時不會重新開始。被瀏覽器拒絕時，下次輕觸主頁再試 */
+      home: function (sg) {
+        if (!sg) return;
+        if (mode === "home" && playing && el && !el.paused) return;
+        song = sg;
+        ensure(sg);
+        resumeCtx();
+        mode = "home";
+        playing = true;
+        apply(HOME, true);
+        play();
+      },
+      /** 離開主頁（畫冊 / 日曆 / 家長區）：暫停主頁音樂（保留位置，回來時繼續） */
+      stopHome: function () {
+        if (mode !== "home") return;
+        playing = false; mode = null;
+        if (el) { el.pause(); apply(0, true); }
       },
       pause: function () { if (playing && el) el.pause(); },
       resume: function () { if (playing && el) { resumeCtx(); if (el.paused) play(); } },
       /** 停止並回到開頭 */
       stop: function () {
+        playing = false; mode = null;
         if (!el) return;
-        playing = false;
         el.pause();
         try { el.currentTime = 0; } catch (e) { /* ignore */ }
         apply(0, true);
       },
-      update: function (e) { if (playing) apply(level(e)); },
-      duck: function () { if (playing) duckAt = performance.now(); },
+      update: function (e) { if (playing && mode === "brush") { lastE = e; apply(level(e)); } },
+      duck: function () { if (playing && mode === "brush") duckAt = performance.now(); },
       active: function () { return playing; },
+      mode: function () { return playing ? mode : null; },
       /** 測試用 */
       info: function () {
-        return el ? { exists: true, src: el.getAttribute("src"), paused: el.paused, currentTime: el.currentTime, duration: el.duration,
-          loop: el.loop, playing: playing, target: vol, gain: gain ? gain.gain.value : el.volume, webAudio: !!gain,
-          ctx: gain ? gain.context.state : null, song: song && song.title, starts: starts } : { exists: false, playing: false, song: song && song.title, starts: starts };
+        var c = sound.peek();
+        var base = { playing: playing, mode: playing ? mode : null, song: song && song.title, starts: starts, rebuilds: rebuilds, plain: plain,
+          ctx: c ? c.state : null, audioEls: document.querySelectorAll("audio").length };
+        if (!el) { base.exists = false; return base; }
+        base.exists = true; base.src = el.getAttribute("src"); base.paused = el.paused; base.currentTime = el.currentTime; base.duration = el.duration;
+        base.loop = el.loop; base.target = vol; base.gain = gain ? gain.gain.value : el.volume; base.webAudio = !!gain;
+        base.routedCtx = gain ? gain.context.state : null; base.sameCtx = !!gain && gain.context === c;
+        return base;
       }
     };
   })();
@@ -479,6 +612,7 @@
   }
   $("btn-ready").addEventListener("click", function () {
     if (!brush.running || brush.phase !== "ready") return;
+    music.gesture();
     music.resume();
     beginBrushing(true);
   });
@@ -613,13 +747,18 @@
         loop();
         step();
       }
-    } else if (document.visibilityState === "visible" && current === "home") {
-      renderHome();
+    } else if (current === "home") {
+      // 主頁音樂：放到背景時暫停；回到前景時再試（iOS 上可能要再輕觸一下主頁）
+      if (document.visibilityState === "hidden") music.pause();
+      else { renderHome(); homeMusic(); }
     }
   });
+  window.addEventListener("pageshow", function (e) { if (e.persisted && current === "home") homeMusic(); });
 
-  // iOS 有時會在回到前景後暫停 AudioContext：刷牙時輕觸畫面就會恢復音樂
-  $("screen-brush").addEventListener("pointerdown", function () { if (brush.running) music.resume(); });
+  // iOS 有時會在回到前景後暫停 AudioContext：刷牙時輕觸畫面就會恢復音樂（需要時重建 AudioContext）
+  ["pointerdown", "touchend"].forEach(function (ev) {
+    $("screen-brush").addEventListener(ev, function () { if (brush.running) { music.gesture(); music.resume(); } }, { passive: true });
+  });
 
   function completeBrush() {
     stopTimers();
@@ -903,8 +1042,10 @@
     var days = Object.keys(state.days).filter(function (k) { var d = state.days[k]; return d.m || d.e; }).length;
     $("parent-info").textContent = "已收集 " + L.collectedIn(state, "s1").length + " / " + s1Total() + " 張卡片，共有 " + days + " 天的刷牙紀錄。";
     renderMusicToggle();
+    renderHomeMusicToggle();
     renderReadyToggle();
     $("parent").hidden = false;
+    music.stopHome();
   }
   function renderMusicToggle() {
     var on = settings.music, sg = L.songFor(state);
@@ -913,6 +1054,18 @@
     $("music-note").textContent = on ? "刷牙時會播放主題曲" + (sg && sg.title ? "《" + sg.title + "》" : "") + "（預備倒數時已經開始），刷牙最後三秒慢慢變小聲。"
                                      : "刷牙時不播放音樂（仍有提示音）。";
   }
+  function renderHomeMusicToggle() {
+    var on = homeMusicOn(), sg = L.songFor(state);
+    $("toggle-home-music").setAttribute("aria-checked", on ? "true" : "false");
+    $("toggle-home-music-text").textContent = on ? "開" : "關";
+    $("home-music-note").textContent = on ? "在主頁小聲循環播放主題曲" + (sg && sg.title ? "《" + sg.title + "》" : "") + "，一打開就知道有沒有聲音（iPhone 上可能要先輕觸畫面一下）。"
+                                          : "主頁不播放音樂。";
+  }
+  $("toggle-home-music").addEventListener("click", function () {
+    if (homeMusicOn()) settings.homeMusic = false; else delete settings.homeMusic;
+    saveSettings();
+    renderHomeMusicToggle();
+  });
   function renderReadyToggle() {
     var on = readyOn();
     $("toggle-ready").setAttribute("aria-checked", on ? "true" : "false");
@@ -930,7 +1083,7 @@
     saveSettings();
     renderMusicToggle();
   });
-  $("btn-parent-close").addEventListener("click", function () { $("parent").hidden = true; });
+  $("btn-parent-close").addEventListener("click", function () { $("parent").hidden = true; music.gesture(); homeMusic(); });
   $("btn-export").addEventListener("click", function () {
     var payload = { app: "momoke-brush", version: 2, exportedAt: new Date(now()).toISOString(), state: state, settings: settings };
     var json = JSON.stringify(payload, null, 2);
@@ -984,7 +1137,7 @@
 
   // ---------- 啟動 ----------
   renderHome();
-  playGrants(migratedGrants);
+  if (!playGrants(migratedGrants)) homeMusic(); // 先試一次（iOS 通常會拒絕，輕觸主頁後就會開始）
   setInterval(function () { if (current === "home" && document.visibilityState === "visible") renderHome(); }, 60000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
@@ -992,5 +1145,5 @@
   if (TEST) window.__momoke = { state: function () { return state; }, logic: L, go: go, elapsed: function () { return brush.running ? elapsed() : null; },
     phase: function () { return brush.running ? brush.phase : null; }, readyLeft: function () { return brush.phase === "ready" ? READY_MS - readyElapsed() : null; },
     plan: function () { return brush.plan; }, startTs: function () { return brush.startTs; },
-    music: function () { return music.info(); }, settings: function () { return settings; }, foam: function () { return fx.coverage(); }, fx: function () { return fx.info(); } };
+    music: function () { return music.info(); }, audioCtx: function () { return sound.peek(); }, settings: function () { return settings; }, foam: function () { return fx.coverage(); }, fx: function () { return fx.info(); } };
 })();
