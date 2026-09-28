@@ -173,7 +173,7 @@
   function homeMusicOn() { return settings.homeMusic !== false; }
   function homeMusic() {
     if (current !== "home" || !$("parent").hidden || brush.running) return;
-    if (homeMusicOn()) music.home(L.songFor(state)); else music.stopHome();
+    if (homeMusicOn()) music.home(L.songFor(state, "home")); else music.stopHome();
   }
   // pointerdown 跟 touchend / click 都聽：iOS 以 touchend / click 作為可以播放聲音的手勢（重複呼叫不會重新播放）
   ["pointerdown", "touchend", "click"].forEach(function (ev) {
@@ -254,7 +254,8 @@
 
   // ---------- 音樂（<audio> 循環播放；有 Web Audio 時經 GainNode 控制音量和淡出） ----------
   // 兩種模式：「home」主頁背景音樂（較小聲、不淡出）；「brush」刷牙音樂（預備倒數開始、提示音時降低、最後 3 秒淡出）。
-  // 兩者都播放目前季度的主題曲（logic.js 的 songFor()）。
+  // 主頁播放目前季度主題曲的純音樂版（songFor(state, "home")），刷牙播放有人聲的主題曲（songFor(state)）；
+  // 同一個 <audio>，切換時在手勢內換 src（ensure()），Web Audio 的接駁不變。
   var music = (function () {
     var BASE = 0.55;       // 刷牙音樂音量（比滿音量低，讓提示音聽得清楚）
     var HOME = 0.3;        // 主頁音樂音量（比刷牙時小聲）
@@ -421,7 +422,7 @@
       /** 測試用 */
       info: function () {
         var c = sound.peek();
-        var base = { playing: playing, mode: playing ? mode : null, song: song && song.title, starts: starts, rebuilds: rebuilds, plain: plain,
+        var base = { playing: playing, mode: playing ? mode : null, song: song && song.title, kind: song && song.kind, starts: starts, rebuilds: rebuilds, plain: plain,
           ctx: c ? c.state : null, audioEls: document.querySelectorAll("audio").length };
         if (!el) { base.exists = false; return base; }
         base.exists = true; base.src = el.getAttribute("src"); base.paused = el.paused; base.currentTime = el.currentTime; base.duration = el.duration;
@@ -1055,10 +1056,11 @@
                                      : "刷牙時不播放音樂（仍有提示音）。";
   }
   function renderHomeMusicToggle() {
-    var on = homeMusicOn(), sg = L.songFor(state);
+    var on = homeMusicOn(), sg = L.songFor(state, "home");
     $("toggle-home-music").setAttribute("aria-checked", on ? "true" : "false");
     $("toggle-home-music-text").textContent = on ? "開" : "關";
-    $("home-music-note").textContent = on ? "在主頁小聲循環播放主題曲" + (sg && sg.title ? "《" + sg.title + "》" : "") + "，一打開就知道有沒有聲音（iPhone 上可能要先輕觸畫面一下）。"
+    var name = sg && sg.title ? "《" + sg.title + "》" + (sg.instrumental ? "純音樂版（沒有人聲）" : "") : "主題曲";
+    $("home-music-note").textContent = on ? "在主頁小聲循環播放" + name + "，一打開就知道有沒有聲音（iPhone 上可能要先輕觸畫面一下）。"
                                           : "主頁不播放音樂。";
   }
   $("toggle-home-music").addEventListener("click", function () {

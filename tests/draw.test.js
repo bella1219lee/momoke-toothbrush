@@ -375,6 +375,28 @@ console.log("✓ 日子與時段");
   s1.forEach((it) => all.collected.push({ id: it.id, t: 0, d: null, s: null }));
   eq(L.songFor(all).src, "audio/s1_op.m4a", "集齊後仍播第一季主題曲");
   eq(DATA.seasons.find((x) => x.id === "s2").music, null, "第二季未有歌");
+  // 首頁音樂：純音樂版（music.home）；該季沒有 home 時用該季的 op；刷牙仍用 op
+  const hs = L.songFor(L.emptyState(), "home");
+  eq(hs.src, "audio/s1_home.m4a"); eq(hs.kind, "home"); eq(hs.instrumental, true); eq(hs.title, "捕萌少女");
+  ok(fs.existsSync(path.join(__dirname, "..", hs.src)), "首頁音樂檔存在");
+  eq(L.songFor(L.emptyState(), "op").src, "audio/s1_op.m4a"); eq(song.kind, "op"); eq(song.instrumental, false);
+  eq(L.songFor(all, "home").src, "audio/s1_home.m4a", "集齊後首頁仍播第一季純音樂版");
+  {
+    const D2 = JSON.parse(JSON.stringify(DATA)); delete D2.seasons[0].music.home;
+    const L2 = require("../logic.js")(D2);
+    eq(L2.songFor(L2.emptyState(), "home").src, "audio/s1_op.m4a", "沒有 home 時首頁用該季的 op");
+    eq(L2.songFor(L2.emptyState(), "home").kind, "op");
+    // 第二季開放而只有 op：首頁用第二季的 op；第二季沒有音樂：沿用第一季的 home
+    const D3 = JSON.parse(JSON.stringify(DATA)); D3.seasons[1].open = true;
+    D3.seasons[1].music = { op: { src: "audio/s2_op.m4a", title: "x" } };
+    const L3 = require("../logic.js")(D3);
+    const st3 = L3.emptyState(); s1.forEach((it) => st3.collected.push({ id: it.id, t: 0, d: null, s: null }));
+    eq(L3.songFor(st3, "home").src, "audio/s2_op.m4a", "第二季有 op 沒有 home：首頁用第二季的 op");
+    D3.seasons[1].music = null;
+    const L4 = require("../logic.js")(D3);
+    eq(L4.songFor(st3, "home").src, "audio/s1_home.m4a", "第二季沒有音樂：沿用第一季的純音樂版");
+    eq(L4.songFor(st3).src, "audio/s1_op.m4a");
+  }
   assert.deepStrictEqual(L.normalizeSettings(null), { music: true }, "預設開啟");
   assert.deepStrictEqual(L.normalizeSettings({ music: false }), { music: false });
   assert.deepStrictEqual(L.normalizeSettings({ music: "x" }), { music: true });

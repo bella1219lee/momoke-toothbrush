@@ -1,7 +1,7 @@
 /* 萌可刷牙 — Service Worker（離線快取）
- * 新增/更換任何檔案後，把 VERSION 加一（例如 "v7" → "v8"），已安裝的 App 會在下次開啟時更新。
+ * 新增/更換任何檔案後，把 VERSION 加一（例如 "v8" → "v9"），已安裝的 App 會在下次開啟時更新。
  */
-var VERSION = "v7";
+var VERSION = "v8";
 var CACHE = "momoke-brush-" + VERSION;
 importScripts("data.js");
 
@@ -20,9 +20,11 @@ var CORE = [
 ];
 // 所有卡片圖片由 data.js 自動列出（img 不是 null 的項目）
 var IMAGES = (self.MOMOKE_DATA.items || []).filter(function (i) { return i.img; }).map(function (i) { return i.img; });
-// 刷牙音樂（data.js 各季的 music.op.src）
-var MUSIC = (self.MOMOKE_DATA.seasons || []).filter(function (s) { return s.music && s.music.op && s.music.op.src; })
-  .map(function (s) { return s.music.op.src; });
+// 刷牙音樂和首頁音樂（data.js 各季的 music.op.src、music.home.src）
+var MUSIC = [];
+(self.MOMOKE_DATA.seasons || []).forEach(function (s) {
+  ["op", "home"].forEach(function (k) { if (s.music && s.music[k] && s.music[k].src) MUSIC.push(s.music[k].src); });
+});
 
 self.addEventListener("install", function (event) {
   event.waitUntil(

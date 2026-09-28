@@ -353,21 +353,27 @@
   }
 
   /**
-   * 刷牙音樂：目前收集中的季度的主題曲；該季未有歌（或已集齊）時，用最近一個已開放而有歌的季度。
-   * 回傳 { src, type, title, duration, season } 或 null。
+   * 音樂：目前收集中的季度的歌；該季未有歌（或已集齊）時，用最近一個已開放而有歌的季度。
+   * kind = "op"（預設，刷牙音樂，有人聲）或 "home"（首頁音樂：該季的 music.home 純音樂版；該季沒有 home 時用該季的 op）。
+   * 回傳 { src, type, title, duration, season, kind, instrumental } 或 null（kind 為實際使用的曲目）。
    */
-  function songFor(state) {
+  function songFor(state, kind) {
     var sid = currentSeasonId(state);
     var best = null;
     for (var i = 0; i < DATA.seasons.length; i++) {
       var s = DATA.seasons[i];
       if (!s.open) break;
-      if (s.music && s.music.op && s.music.op.src) best = { season: s.id, op: s.music.op };
+      var m = s.music;
+      if (m) {
+        if (kind === "home" && m.home && m.home.src) best = { season: s.id, kind: "home", t: m.home };
+        else if (m.op && m.op.src) best = { season: s.id, kind: "op", t: m.op };
+      }
       if (s.id === sid) break;
     }
     if (!best) return null;
-    var op = best.op;
-    return { src: op.src, type: op.type || "", title: op.title || "", duration: op.duration || 0, season: best.season };
+    var t = best.t;
+    return { src: t.src, type: t.type || "", title: t.title || "", duration: t.duration || 0, season: best.season,
+             kind: best.kind, instrumental: !!t.instrumental };
   }
 
   /**

@@ -32,8 +32,13 @@
         first: ["s1-m-01", "s1-p-01"],   // 第 1、2 次捕捉固定
         finalItem: "s1-m-24",            // 最後一張（第 81 張）：鬧鬧萌可
         completeTitle: "恭喜集齊第一季！",
-        // 刷牙音樂：這一季的主題曲（片頭曲），刷牙時循環播放。檔案會自動加入離線快取（sw.js）。
-        music: { op: { src: "audio/s1_op.m4a", type: "audio/mp4", title: "捕萌少女", duration: 55.0 } }
+        // 音樂（檔案會自動加入離線快取 sw.js）：
+        //   op   刷牙音樂：這一季的主題曲（片頭曲，有人聲），刷牙時循環播放
+        //   home 首頁音樂：主題曲的純音樂版（沒有人聲），主頁小聲循環播放；沒有 home 時主頁改播這一季的 op
+        music: {
+          op: { src: "audio/s1_op.m4a", type: "audio/mp4", title: "捕萌少女", duration: 55.0 },
+          home: { src: "audio/s1_home.m4a", type: "audio/mp4", title: "捕萌少女", instrumental: true, duration: 56.6 }
+        }
       },
       {
         // 第二季（未開放）。之後開放時：把 open 改成 true，並在 items 加入 season: "s2" 的卡片。
@@ -44,7 +49,8 @@
         lockedText: "第二季 敬請期待",
         transform: { from: "s1-m-24", to: null /* 例如 "s2-m-01"（幸福萌可） */ },
         // 第二季的主題曲未有檔案。之後加入：放進 audio/（例如 audio/s2_op.m4a），改成
-        //   music: { op: { src: "audio/s2_op.m4a", type: "audio/mp4", title: "歌名", duration: 秒數 } }
+        //   music: { op: { src: "audio/s2_op.m4a", type: "audio/mp4", title: "歌名", duration: 秒數 },
+        //            home: { src: "audio/s2_home.m4a", type: "audio/mp4", title: "歌名", instrumental: true, duration: 秒數 } }  // home 可省略
         // 未有歌的季度會沿用最近一季的歌（logic.js songFor）。
         music: null
       }

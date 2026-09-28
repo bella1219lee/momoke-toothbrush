@@ -1,6 +1,6 @@
 # 萌可刷牙（奇妙萌可刷牙獎勵 PWA）
 
-給小朋友用的刷牙獎勵 App：按「開始刷牙」後先有 10 秒預備倒數（準備牙刷和牙膏），然後在早上或晚上的刷牙時段完整刷牙 2 分鐘，每次都能得到一張奇妙萌可卡片（刷牙時牙刷會把蓋著卡片的泡泡慢慢刷走，同時播放第一季主題曲《捕萌少女》），收進畫冊。主頁會小聲循環播放主題曲（首頁音樂），家長一打開 App 就知道有沒有聲音。
+給小朋友用的刷牙獎勵 App：按「開始刷牙」後先有 10 秒預備倒數（準備牙刷和牙膏），然後在早上或晚上的刷牙時段完整刷牙 2 分鐘，每次都能得到一張奇妙萌可卡片（刷牙時牙刷會把蓋著卡片的泡泡慢慢刷走，同時播放第一季主題曲《捕萌少女》），收進畫冊。主頁會小聲循環播放主題曲的純音樂版（首頁音樂，沒有人聲），家長一打開 App 就知道有沒有聲音。
 純靜態網站（HTML / CSS / 原生 JS），沒有建置步驟、沒有框架、沒有後端。所有資料只存在裝置的 localStorage。
 Service worker 會快取所有檔案，第一次載入後可離線使用。
 
@@ -18,7 +18,8 @@ manifest.webmanifest    PWA 設定（名稱「萌可刷牙」、standalone）
 icons/                  apple-touch-icon.png（180）、icon-192.png、icon-512.png（由 01_aixin.jpg 縮放）
 img/s1/                 24 張萌可圖（由 /workspace/momoke/images/s1/ 縮放至最長邊 ≤600px、JPEG 85）
 img/princess/           5 張公主圖（由 s1_princess/0X_*_gongzhu.png 轉成白底正方形 600×600 JPEG）
-audio/s1_op.m4a         第一季主題曲《捕萌少女》（刷牙音樂，見下面「刷牙音樂」）
+audio/s1_op.m4a         第一季主題曲《捕萌少女》（刷牙音樂，有人聲，見下面「刷牙音樂」）
+audio/s1_home.m4a       第一季主題曲的官方純音樂版（首頁音樂，沒有人聲，見下面「首頁音樂」）
 img/stills/             52 張劇照 ep01_a.jpg … ep26_b.jpg（由 s1_stills_v2/ 縮放至 800×450 以內、JPEG 85，保持比例）
 tools/prepare_images.py 重新產生 img/s1、img/princess、img/stills 和 icons 的腳本（只縮放 / 壓縮 / 以白色補成正方形）
 tests/draw.test.js      Node 測試：抽卡順序模擬 20000 次 + 使用模擬 3000 次 + 得卡規則 + 舊資料轉換 + 泡泡路線覆蓋 + 音樂資料 + 預備倒數的時段邊緣
@@ -35,7 +36,7 @@ screenshots/            測試截圖
 
 注意：iPhone 側邊靜音鍵開啟時，Web Audio 提示音可能不會發聲（這是 iOS 的行為）；刷牙音樂開啟時一般不受影響（見「刷牙音樂」）。
 
-## 規則（2026-09-27 起；目前 sw.js VERSION = "v7"）
+## 規則（2026-09-27 起；目前 sw.js VERSION = "v8"）
 
 - 「一天」由凌晨 04:00 至翌日 04:00（裝置本地時間）。
 - 早上時段 04:00–12:00；晚上時段 17:00–04:00。以**開始刷牙的時間**判斷時段和日子；
@@ -73,13 +74,25 @@ screenshots/            測試截圖
   設定存在 `momoke-brush-settings`：關閉時為 `{ "music": true, "ready": false }`，開啟時不寫入 `ready`。
 - 測試用 `speed` 參數同樣加快倒數（例如 `speed=10` 時倒數 1 秒）。
 
-## 首頁音樂（v7 新增）
+## 首頁音樂（v7 新增；v8 起用純音樂版）
 
-- 在主頁以**較小的音量**（30%，刷牙時是 55%）循環播放目前季度的主題曲（跟刷牙音樂同一首：`songFor()`，第一季《捕萌少女》），
+- 在主頁以**較小的音量**（30%，刷牙時是 55%）循環播放目前季度主題曲的**純音樂版（沒有人聲）**：
+  `songFor(state, "home")` 用 `data.js` 的 `seasons[].music.home`；該季沒有 `home` 時用該季的 `op`；
+  該季完全沒有音樂時沿用最近一季（跟刷牙音樂一樣的規則）。刷牙音樂仍是有人聲的 `music.op`（`songFor(state)`）。
   不淡出、不降低。目的是家長打開 App 時立即聽到聲音是否正常，不用等到刷牙才發現沒有聲音。
 - iOS 只允許在使用者手勢內開始播放：顯示主頁時先試一次；被拒絕的話，**輕觸主頁任何地方**（pointerdown / touchend / click）就會開始。
   App 放到背景 / 鎖機時暫停；回到前景（visibilitychange / pageshow）時再試，iOS 上通常要再輕觸一下主頁。
-- 按「開始刷牙」改播刷牙音樂（由頭開始，音量、降低、淡出的邏輯跟以前一樣）。
+- 按「開始刷牙」改播刷牙音樂（由頭開始，音量、降低、淡出的邏輯跟以前一樣）。首頁和刷牙共用同一個 `<audio>`（Web Audio 接駁不變），
+  在「開始刷牙」的點擊內把 `src` 由純音樂版換成有人聲的版本；回到主頁時（同樣在點擊內）換回純音樂版並由頭播放。
+  從畫冊 / 日曆 / 家長區回來時 `src` 沒有變，會由暫停的位置繼續。
+- 第一季檔案：`audio/s1_home.m4a`（AAC-LC 192 kbps / 48 kHz，56.6 秒，1.4 MB），原樣複製自 `/workspace/momoke/music/s1/home_inst.m4a`。
+  來源（見該資料夾的 `sources.json`）：SAMG 官方的第一季片頭曲伴奏〈캐치티니핑 오프닝곡 (MR)〉
+  （Apple Music / iTunes 名稱「CATCH PING : Fairies of Emotion opening song (Instrumental)」），
+  YouTube「Catch! Teenieping - Topic」官方發行頻道 <https://www.youtube.com/watch?v=iGb2d6Qi8-8>
+  （Provided to YouTube by Collab Asia Music，℗ SAMG Entertainment，2020-03-19）；
+  同一發行亦見於 Apple Music <https://music.apple.com/nz/album/catch-ping-fairies-of-emotion-title-instrumental/1562086171>（第 4 首）。
+  《捕萌少女》是這首韓文片頭曲的中文版，用的是同一條伴奏。由 YouTube Opus 轉成 AAC，只加了開頭 0.05 秒淡入和結尾 2 秒淡出（方便循環），沒有其他處理。
+  只保留 m4a（mp3 版本不放進 App）。
 - 進入畫冊、日曆或家長區時停止；回到主頁（刷牙完成或停止後、從畫冊 / 日曆返回、關閉家長區）時繼續播放（iOS 上可能要輕觸一下）。
 - 家長區「首頁音樂」：開 / 關（預設開啟），與「刷牙音樂」分開。設定存在 `momoke-brush-settings`：關閉時寫入 `"homeMusic": false`，
   開啟時不寫入（舊設定沒有這個鍵 = 開啟，不需要轉換）。
@@ -129,9 +142,9 @@ screenshots/            測試截圖
   如果 iOS 在回到前景後暫停了音訊，輕觸刷牙畫面就會恢復（需要時自動重建音訊，見「聲音自動恢復」）。音樂以真實時間播放，測試用的 `speed` 參數只加快計時和動畫。
 - 家長區可以關閉「刷牙音樂」（預設開啟），設定存在 localStorage 鍵 `momoke-brush-settings`（`{ "music": true }`），
   與進度資料分開（進度資料格式不變，不需要轉換）。
-- 每季可以有自己的歌：`data.js` → `seasons[].music.op`（`src`、`type`、`title`、`duration`）。
+- 每季可以有自己的歌：`data.js` → `seasons[].music.op`（刷牙，`src`、`type`、`title`、`duration`）和 `music.home`（首頁純音樂版，可省略，另有 `instrumental: true`）。
   `logic.js` 的 `songFor()` 播放目前收集中的季度的歌；該季未有歌時沿用最近一季的歌。
-  第二季的歌未有檔案（`music: null`）；之後把檔案放進 `audio/`（例如 `audio/s2_op.m4a`），在第二季加入 `music: { op: { … } }`，
+  第二季的歌未有檔案（`music: null`）；之後把檔案放進 `audio/`（例如 `audio/s2_op.m4a`、`audio/s2_home.m4a`），在第二季加入 `music: { op: { … }, home: { … } }`，
   再把 `sw.js` 的 `VERSION` 加一（Service worker 會自動快取 data.js 列出的所有音樂檔）。
 - 抽卡順序（第一季 81 張，每得到一張卡前進一步）：第 1 張愛心萌可、第 2 張愛心公主；
   之後如果已收集某皇室萌可而未有它的公主（正常即上一張是皇室萌可），這張就是它的公主；
@@ -192,7 +205,7 @@ App 已上線，裝置上可能已有舊資料。第一次開啟新版時自動�
    ```
    （`blurb` 可以按需要修改；**不要改 `id`**，已收集的紀錄靠 id 對應。）
 
-3. 打開 `sw.js`，把 `VERSION` 加一（目前是 `"v7"`，下次改成 `"v8"`，如此類推）。
+3. 打開 `sw.js`，把 `VERSION` 加一（目前是 `"v8"`，下次改成 `"v9"`，如此類推）。
 4. 重新上傳整個資料夾。iPhone 上的 App 會在下次開啟時下載新圖片（可能要關掉 App 再開一次）。
 
 ## ★ 更換劇照（52 張）
@@ -211,7 +224,7 @@ App 已上線，裝置上可能已有舊資料。第一次開啟新版時自動�
 
 說明：
 - `img` 仍為 `null`（或圖片檔找不到）時，卡片會顯示灰色「圖片準備中」空白卡，不影響收集。
-- Service worker 會自動快取 `data.js` 內所有 `img` 不是 `null` 的圖片（目前 81 張：24 萌可 + 5 公主 + 52 劇照）和各季的音樂檔，不需要另外修改快取清單。
+- Service worker 會自動快取 `data.js` 內所有 `img` 不是 `null` 的圖片（目前 81 張：24 萌可 + 5 公主 + 52 劇照）和各季的音樂檔（刷牙 `op` 和首頁 `home`），不需要另外修改快取清單。
   音樂的 Range 請求由 service worker 從快取切出 206 回應（Safari 播放快取的音訊需要這樣）。
 - 圖片只可以縮放、壓縮、以白色補成正方形；可參考 `tools/prepare_images.py`。
 
@@ -233,7 +246,7 @@ App 已上線，裝置上可能已有舊資料。第一次開啟新版時自動�
 - 匯出備份：下載 JSON 檔（iPhone 上會開啟分享選單，可選「儲存到檔案」）。
 - 匯入備份：選擇之前匯出的 JSON 檔，會取代目前資料。
 - 刷牙音樂：開 / 關（預設開啟，存在 `momoke-brush-settings`）。
-- 首頁音樂：開 / 關（預設開啟；主頁小聲循環播放主題曲，見「首頁音樂」）。
+- 首頁音樂：開 / 關（預設開啟；主頁小聲循環播放主題曲的純音樂版，見「首頁音樂」）。
 - 預備時間：開 / 關（預設開啟；開始刷牙前倒數 10 秒）。
 - 重設所有資料：確認兩次後清除進度（家長設定保留）。
 - 家長區內容比螢幕高時可以上下捲動。

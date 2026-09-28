@@ -71,9 +71,11 @@ def music(page):
     return page.evaluate("window.__momoke.music()")
 MUSIC_BASE = 0.55
 HOME_LEVEL = 0.3
+HOME_SRC, BRUSH_SRC = "audio/s1_home.m4a", "audio/s1_op.m4a"  # 首頁：純音樂版；刷牙：有人聲的《捕萌少女》
 def home_playing(page):
     m = music(page)
-    return m.get("mode") == "home" and m.get("exists") and not m["paused"] and abs(m["target"] - HOME_LEVEL) < 0.01
+    return (m.get("mode") == "home" and m.get("exists") and not m["paused"] and abs(m["target"] - HOME_LEVEL) < 0.01
+            and m["src"] == HOME_SRC and m["kind"] == "home")
 def tap_home(page):
     page.click("#home-hint")  # 主頁上一個沒有按鈕的地方
 
@@ -166,7 +168,7 @@ with sync_playwright() as p:
     page.wait_for_selector("#screen-home.active")
     page.wait_for_timeout(300)
     m2 = music(page)
-    ok(m2["mode"] == "home" and not m2["paused"] and abs(m2["target"] - HOME_LEVEL) < 0.01 and m2["currentTime"] < 2,
+    ok(m2["mode"] == "home" and not m2["paused"] and abs(m2["target"] - HOME_LEVEL) < 0.01 and m2["currentTime"] < 2 and m2["src"] == HOME_SRC,
        f"停止 stops the brushing music; home music starts again from the beginning ({m2['currentTime']:.2f} s)")
     ok("○" in slot(page, "slot-m") and len(state(page)["collected"]) == 0, "stopped brushing does not count")
     ok(state(page)["pending"]["id"] == "s1-m-01", "pending card kept after stopping")
@@ -578,16 +580,17 @@ with sync_playwright() as p:
     ok(page.evaluate("!!navigator.serviceWorker.controller"), "service worker registered and controlling page")
     for _ in range(40):
         cached = page.evaluate("caches.keys().then(ks => Promise.all(ks.map(k => caches.open(k).then(c => c.keys().then(r => [k, r.map(x => new URL(x.url).pathname)])))))")
-        v7 = dict(cached).get("momoke-brush-v7", [])
-        if len(v7) >= 93: break
+        v8 = dict(cached).get("momoke-brush-v8", [])
+        if len(v8) >= 94: break
         page.wait_for_timeout(250)
     print("  caches:", [(k, len(v)) for k, v in cached])
     all_imgs = page.evaluate("window.MOMOKE_DATA.items.map(i => i.img)")
-    missing = [u for u in all_imgs if "/" + u not in v7]
-    ok(not missing and len(all_imgs) == 81, f"cache v7 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
-    ok(all(f in v7 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v7 holds core files")
-    ok("/audio/s1_op.m4a" in v7, "cache v7 holds the brushing music audio/s1_op.m4a")
-    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4", "momoke-brush-v5", "momoke-brush-v6") for k, _ in cached), "old caches removed")
+    missing = [u for u in all_imgs if "/" + u not in v8]
+    ok(not missing and len(all_imgs) == 81, f"cache v8 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
+    ok(all(f in v8 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v8 holds core files")
+    ok("/audio/s1_op.m4a" in v8, "cache v8 holds the brushing music audio/s1_op.m4a")
+    ok("/audio/s1_home.m4a" in v8, "cache v8 holds the home instrumental audio/s1_home.m4a")
+    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4", "momoke-brush-v5", "momoke-brush-v6", "momoke-brush-v7") for k, _ in cached), "old caches removed")
     ctx.set_offline(True)
     stop_server()  # really offline: no server at all
     page.reload(); page.wait_for_selector("#screen-home.active")
@@ -596,9 +599,12 @@ with sync_playwright() as p:
     rng = page.evaluate("fetch('audio/s1_op.m4a', { headers: { Range: 'bytes=100-1099' } }).then(r => r.arrayBuffer().then(b => [r.status, b.byteLength, r.headers.get('Content-Range')]))")
     ok(rng[0] == 206 and rng[1] == 1000 and rng[2].startswith("bytes 100-1099/"), f"offline: service worker answers audio Range requests with 206 ({rng})")
     page.goto(url("2026-10-07T14:00", 1)); page.wait_for_selector("#screen-home.active")
+    tap_home(page); page.wait_for_timeout(1500)
+    m = music(page)
+    ok(home_playing(page) and m["currentTime"] > 0.5, f"offline: home instrumental plays from the cache ({m['currentTime']:.2f} s)")
     page.click("#btn-start"); page.wait_for_selector("#screen-brush.active"); page.wait_for_timeout(1800)
     m = music(page)
-    ok(not m["paused"] and m["currentTime"] > 0.5 and m["duration"] > 50, f"offline: music plays from the cache ({m['currentTime']:.2f} s)")
+    ok(not m["paused"] and m["currentTime"] > 0.5 and m["duration"] > 50 and m["src"] == BRUSH_SRC, f"offline: brushing music plays from the cache ({m['currentTime']:.2f} s)")
     page.click("#btn-stop"); page.wait_for_selector("#screen-home.active")
     page.goto(url("2026-10-07T08:00", 240))
     page.wait_for_selector("#screen-home.active")
@@ -778,8 +784,10 @@ with sync_playwright() as p:
     open_home(page, "2026-11-24T08:00", 10)
     tap_home(page); page.wait_for_timeout(700)
     m = music(page)
-    ok(home_playing(page) and m["src"] == "audio/s1_op.m4a" and m["song"] == "捕萌少女" and m["loop"] and m["webAudio"] and m["ctx"] == "running",
-       f"home music: 《捕萌少女》 loops at the lower home level after a tap on home ({m})")
+    ok(home_playing(page) and m["src"] == HOME_SRC and m["song"] == "捕萌少女" and m["loop"] and m["webAudio"] and m["ctx"] == "running",
+       f"home music: instrumental 《捕萌少女》 (audio/s1_home.m4a) loops at the lower home level after a tap on home ({m})")
+    page.wait_for_function("window.__momoke.music().duration > 56", timeout=10000)
+    ok(56 < music(page)["duration"] < 57.5, f"home track is the 56.6 s instrumental ({music(page)['duration']:.2f} s)")
     t_a = m["currentTime"]; page.wait_for_timeout(800)
     ok(music(page)["currentTime"] > t_a + 0.3 and m["starts"] == 0, "home music is advancing (and is not counted as a brushing start)")
     ok(HOME_LEVEL < MUSIC_BASE, "home level is lower than the brushing level")
@@ -799,7 +807,7 @@ with sync_playwright() as p:
     open_parent(page)
     ok(music(page)["paused"] and music(page)["mode"] is None, "opening the parent area stops the home music")
     ok(page.get_attribute("#toggle-home-music", "aria-checked") == "true" and "開" in text(page, "#toggle-home-music")
-       and "捕萌少女" in text(page, "#home-music-note") and page.get_attribute("#toggle-music", "aria-checked") == "true",
+       and "《捕萌少女》純音樂版（沒有人聲）" in text(page, "#home-music-note") and page.get_attribute("#toggle-music", "aria-checked") == "true",
        "parent area: 首頁音樂 toggle defaults to 開 (separate from 刷牙音樂)")
     labels = page.locator("#parent .setting-label").all_inner_texts()
     ok([l.split()[-1] for l in labels] == ["刷牙音樂", "首頁音樂", "預備時間"], f"首頁音樂 placed right after 刷牙音樂 ({labels})")
@@ -814,6 +822,11 @@ with sync_playwright() as p:
     m = music(page)
     ok(m["mode"] == "brush" and m["starts"] == 1 and abs(m["target"] - MUSIC_BASE) < 0.01 and m["currentTime"] < 1 and m["audioEls"] == 1,
        f"開始刷牙 switches to brushing music from the beginning at the brushing level ({m['target']:.2f})")
+    ok(m["src"] == BRUSH_SRC and m["kind"] == "op" and page.evaluate("document.getElementById('brush-music').currentSrc").endswith("/" + BRUSH_SRC),
+       "開始刷牙 swaps the source: instrumental → vocal 《捕萌少女》 (audio/s1_op.m4a)")
+    page.wait_for_timeout(700)
+    m = music(page)
+    ok(not m["paused"] and m["currentTime"] > 0.3 and 54 < m["duration"] < 56, f"vocal brushing song is playing ({m['currentTime']:.2f} s of {m['duration']:.1f} s)")
     page.wait_for_function("window.__momoke.elapsed() !== null && window.__momoke.elapsed() >= 118500", timeout=30000)
     m = music(page)
     ok(m["mode"] == "brush" and m["target"] < MUSIC_BASE * 0.6, f"brushing music fading out near 2:00 ({m['target']:.3f})")
@@ -823,7 +836,8 @@ with sync_playwright() as p:
     page.wait_for_selector("#screen-capture.active", timeout=5000)
     ok(music(page)["paused"], "capture screen: no music")
     page.click("#btn-capture-done"); page.wait_for_selector("#screen-home.active"); page.wait_for_timeout(400)
-    ok(home_playing(page), "after brushing, back on home → home music plays again")
+    ok(home_playing(page) and page.evaluate("document.getElementById('brush-music').currentSrc").endswith("/" + HOME_SRC) and music(page)["currentTime"] < 2,
+       "after brushing, back on home → switches back to the instrumental home music (from the start)")
     # broken AudioContext #1: context closed (e.g. iOS gave up on it) → next tap on home rebuilds context + <audio>
     before = music(page)
     page.evaluate("window.__momoke.audioCtx().close()"); page.wait_for_timeout(300)
@@ -842,7 +856,7 @@ with sync_playwright() as p:
     ok(music(page)["ctx"] == "suspended", "simulated stuck AudioContext (suspended, resume() never resolves)")
     page.click("#brush-stage", position={"x": 20, "y": 20}, force=True); page.wait_for_timeout(900)
     m = music(page)
-    ok(m["rebuilds"] == r0 + 1 and m["ctx"] == "running" and m["mode"] == "brush" and not m["paused"] and m["sameCtx"] and m["audioEls"] == 1,
+    ok(m["rebuilds"] == r0 + 1 and m["ctx"] == "running" and m["mode"] == "brush" and not m["paused"] and m["sameCtx"] and m["audioEls"] == 1 and m["src"] == BRUSH_SRC,
        f"stuck context: brush-screen tap rebuilds after ~0.4 s and brushing music continues ({m})")
     t_c = m["currentTime"]; page.wait_for_timeout(600)
     m = music(page)  # 音量仍由原本的邏輯控制（可能因「開始刷牙！」鐘聲 / 區域提示暫時降低）
@@ -854,11 +868,12 @@ with sync_playwright() as p:
     page.evaluate("() => { const c = window.__momoke.audioCtx(); Object.defineProperty(c, 'state', { configurable: true, get: () => 'interrupted' }); }")
     page.click("#btn-start"); page.wait_for_selector("#screen-brush.active")
     m = music(page)
-    ok(m["rebuilds"] == r0 + 1 and m["mode"] == "brush" and m["sameCtx"] and m["audioEls"] == 1, f"'interrupted' context: 開始刷牙 rebuilds it right away ({m['rebuilds']})")
+    ok(m["rebuilds"] == r0 + 1 and m["mode"] == "brush" and m["sameCtx"] and m["audioEls"] == 1 and m["src"] == BRUSH_SRC, f"'interrupted' context: 開始刷牙 rebuilds it right away ({m['rebuilds']})")
     page.wait_for_timeout(800)
     m = music(page)
     ok(not m["paused"] and m["ctx"] == "running" and m["currentTime"] > 0.3, "brushing music plays on the rebuilt context")
-    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active"); page.wait_for_timeout(300)
+    page.click("#btn-stop"); page.wait_for_selector("#screen-home.active"); page.wait_for_timeout(500)
+    ok(home_playing(page) and music(page)["rebuilds"] == r0 + 1, "停止 after the rebuild → instrumental home music on the rebuilt context")
     # toggle 首頁音樂 off
     open_parent(page)
     page.click("#toggle-home-music")
@@ -879,7 +894,7 @@ with sync_playwright() as p:
     ok(m["mode"] is None and (not m["exists"] or m["paused"]) and page.evaluate("window.__momoke.settings().homeMusic") is False, "首頁音樂 off persists after reload (no home music)")
     page.click("#btn-start"); page.wait_for_selector("#screen-brush.active"); page.wait_for_timeout(500)
     m = music(page)
-    ok(m["mode"] == "brush" and not m["paused"], "首頁音樂 off: brushing music still plays")
+    ok(m["mode"] == "brush" and not m["paused"] and m["src"] == BRUSH_SRC, "首頁音樂 off: brushing music (vocal) still plays")
     page.click("#btn-stop"); page.wait_for_selector("#screen-home.active"); page.wait_for_timeout(300)
     ok(music(page)["mode"] is None and music(page)["paused"], "首頁音樂 off: back home after 停止 is silent")
     open_parent(page)
