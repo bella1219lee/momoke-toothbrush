@@ -95,12 +95,19 @@
     p.appendChild(el("span", "", "圖片準備中"));
     return p;
   }
+  // 劇照只顯示集數（「第 3 集」），不顯示 data.js 裡的名稱 / 簡介（blurb / intro 只留在資料裡，不會畫出來）。
+  // 萌可和公主維持原本的名稱和簡介。畫面、alt 文字都經過這裡，所以不會露出劇照的舊說明文字。
+  function shown(item) {
+    if (item.type === "still") return { name: "第 " + item.ep + " 集", blurb: "", intro: "" };
+    return { name: item.name, blurb: item.blurb || "", intro: item.intro || "" };
+  }
   function cardVisual(item) {
-    if (!item.img) return placeholder(item.name);
+    var label = shown(item).name;
+    if (!item.img) return placeholder(label);
     var img = el("img");
-    img.alt = item.name;
+    img.alt = label;
     img.draggable = false;
-    img.onerror = function () { if (img.parentNode) img.parentNode.replaceChild(placeholder(item.name), img); };
+    img.onerror = function () { if (img.parentNode) img.parentNode.replaceChild(placeholder(label), img); };
     img.src = item.img;
     return img;
   }
@@ -667,7 +674,7 @@
     f.setAttribute("data-id", item.id);
     f.appendChild(cardVisual(item));
     void f.offsetWidth; f.classList.add("in");
-    $("slide-name").textContent = item.name;
+    $("slide-name").textContent = shown(item).name;
     fx.invalidate();
   }
   function loop() {
@@ -842,12 +849,13 @@
     front.appendChild(cardVisual(item));
     var total = L.seasonItems(item.season).length;
     $("capture-number").textContent = "第 " + res.number + " 張 / " + total + " 張";
-    $("capture-name").textContent = item.name;
-    $("capture-name").classList.toggle("long", item.name.length > 6);
-    $("capture-blurb").textContent = item.blurb || "";
-    $("capture-blurb").hidden = !item.blurb;
-    $("capture-intro").textContent = item.intro || "";
-    $("capture-intro").hidden = !item.intro;
+    var sh = shown(item);
+    $("capture-name").textContent = sh.name;
+    $("capture-name").classList.toggle("long", sh.name.length > 6);
+    $("capture-blurb").textContent = sh.blurb;
+    $("capture-blurb").hidden = !sh.blurb;
+    $("capture-intro").textContent = sh.intro;
+    $("capture-intro").hidden = !sh.intro;
     $("btn-capture-done").textContent = captureQueue.length ? "下一張" : (pendingCelebrate ? "太棒了！" : "放進畫冊");
     makeSparkles($("sparkles"), 22);
     go("capture");
@@ -921,7 +929,7 @@
       var box = el("div", "cell-img");
       if (got) box.appendChild(cardVisual(it)); else box.textContent = "？";
       c.appendChild(box);
-      c.appendChild(el("div", "cell-name", got ? it.name : "？？？"));
+      c.appendChild(el("div", "cell-name", got ? shown(it).name : "？？？"));
       if (got) {
         c.setAttribute("data-id", it.id);
         c.addEventListener("click", function () { openViewer(albumTab, it.id); });
@@ -950,11 +958,13 @@
     card.classList.toggle("wide", it.type === "still");
     card.appendChild(cardVisual(it));
     $("viewer-type").textContent = TYPE_LABEL[it.category || it.type] || "";
-    $("viewer-name").textContent = it.name;
-    $("viewer-name").classList.toggle("long", it.name.length > 6);
-    $("viewer-blurb").textContent = it.blurb || "";
-    $("viewer-intro").textContent = it.intro || "";
-    $("viewer-intro").hidden = !it.intro;
+    var sh = shown(it);
+    $("viewer-name").textContent = sh.name;
+    $("viewer-name").classList.toggle("long", sh.name.length > 6);
+    $("viewer-blurb").textContent = sh.blurb;
+    $("viewer-blurb").hidden = !sh.blurb;
+    $("viewer-intro").textContent = sh.intro;
+    $("viewer-intro").hidden = !sh.intro;
     $("viewer-count").textContent = (viewer.idx + 1) + " / " + viewer.list.length;
     $("viewer-prev").disabled = viewer.idx <= 0;
     $("viewer-next").disabled = viewer.idx >= viewer.list.length - 1;
@@ -1138,6 +1148,8 @@
   });
 
   // ---------- 啟動 ----------
+  // 版本標籤：數字來自 data.js 的 version（sw.js 的 VERSION 必須相同，tests/draw.test.js 會檢查）
+  $("app-version").textContent = DATA.version || "";
   renderHome();
   if (!playGrants(migratedGrants)) homeMusic(); // 先試一次（iOS 通常會拒絕，輕觸主頁後就會開始）
   setInterval(function () { if (current === "home" && document.visibilityState === "visible") renderHome(); }, 60000);

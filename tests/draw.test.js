@@ -446,4 +446,13 @@ console.log("✓ 日子與時段");
   checks += 6;
   console.log("✓ 預備倒數：時段邊緣以倒數開始 / 真正開始中較有利的時間判斷，不改動資料；預備時間設定預設開啟");
 }
+// App 版本：主頁底部的小字（data.js 的 version）必須和 sw.js 的 VERSION 相同
+{
+  const swSrc = fs.readFileSync(path.join(__dirname, "..", "sw.js"), "utf8");
+  const m = /var VERSION = "(v\d+)"/.exec(swSrc);
+  ok(m, "sw.js 有 VERSION");
+  eq(DATA.version, m[1], "data.js version 必須等於 sw.js VERSION");
+  ok(/^v\d+$/.test(DATA.version), "版本格式 vN");
+  console.log("✓ 版本標籤：data.js version = sw.js VERSION = " + DATA.version);
+}
 console.log(`全部測試通過（${checks} 項斷言）`);

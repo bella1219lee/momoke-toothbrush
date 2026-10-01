@@ -5,7 +5,7 @@
  * 要更換圖片：
  *   1. 把圖片放進 img/s1/、img/princess/ 或 img/stills/（檔名見 README.md）
  *   2. 在下面對應項目設定 img（例如 "img/stills/ep01_a.jpg"）；沒有圖片時為 null
- *   3. 把 sw.js 裡的 VERSION 加一（例如 "v5" → "v6"），讓已安裝的 App 更新快取
+ *   3. 把 sw.js 裡的 VERSION 加一（例如 "v5" → "v6"），並把本檔的 version 改成同一個數字，讓已安裝的 App 更新快取
  * img 為 null 或圖片載入失敗時，App 會顯示「圖片準備中」的空白卡片。
  *
  * 欄位：
@@ -20,9 +20,12 @@
  *   name     顯示名稱
  *   blurb    簡短介紹（可為空字串）
  *   intro    （只限劇照）畫面說明
+ *   （劇照的 name / blurb / intro 只是資料，App 不會顯示；劇照只顯示集數「第 N 集」，見 app.js 的 shown()）
  */
 (function (root) {
   var DATA = {
+    // App 版本（主頁底部的小字）。每次更新時，這裡和 sw.js 的 VERSION 一起加一（兩者必須相同，tests/draw.test.js 會檢查）
+    version: "v9",
     seasons: [
       {
         id: "s1",

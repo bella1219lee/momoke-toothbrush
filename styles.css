@@ -126,6 +126,10 @@ img { -webkit-user-drag: none; }
 .collect-track { grid-column: 1 / 3; height: 14px; border-radius: 7px; background: #f1e6ff; overflow: hidden; }
 .collect-track i { display: block; height: 100%; width: 0; border-radius: 7px; background: linear-gradient(90deg, var(--pink), var(--purple)); transition: width .6s ease; }
 .big-buttons { width: 100%; margin-top: auto; padding-top: 6px; }
+/* 版本小字：淡灰色、不可點、不攔截觸控（不影響長按標題和按鈕） */
+#screen-home { position: relative; }
+/* 放在畫面最底部的內距裡，不佔用版面（主頁高度不變，不會因此出現捲動） */
+.app-version { position: absolute; left: 0; right: 0; bottom: calc(var(--sab) + 3px); font-size: 11px; line-height: 1.2; letter-spacing: .04em; color: rgba(120, 100, 140, .38); text-align: center; pointer-events: none; user-select: none; -webkit-user-select: none; z-index: 1; }
 
 /* ---------- 刷牙 ---------- */
 #screen-brush { justify-content: space-between; gap: 8px; --cardsz: min(82vw, 330px, 40vh); }

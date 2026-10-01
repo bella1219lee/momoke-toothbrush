@@ -36,7 +36,7 @@ screenshots/            測試截圖
 
 注意：iPhone 側邊靜音鍵開啟時，Web Audio 提示音可能不會發聲（這是 iOS 的行為）；刷牙音樂開啟時一般不受影響（見「刷牙音樂」）。
 
-## 規則（2026-09-27 起；目前 sw.js VERSION = "v8"）
+## 規則（2026-09-27 起；目前 sw.js VERSION = "v9"）
 
 - 「一天」由凌晨 04:00 至翌日 04:00（裝置本地時間）。
 - 早上時段 04:00–12:00；晚上時段 17:00–04:00。以**開始刷牙的時間**判斷時段和日子；
@@ -169,7 +169,9 @@ screenshots/            測試截圖
 
 - 52 劇照（每集 a、b 兩張，畫冊按集數再 a/b 排列）：id `s1-still-ep01a` … `s1-still-ep26b`，
   圖片 `img/stills/ep01_a.jpg` … `ep26_b.jpg`，來源 `/workspace/momoke/images/s1_stills_v2/`（集數/畫面資料見該資料夾的 manifest.json）。
-  `name` / `blurb` / `intro` 原文照錄 blurbs.json 的 `title` / `blurb` / `intro`（全螢幕檢視和捕捉畫面會顯示 intro）。
+  `name` / `blurb` / `intro` 原文照錄 blurbs.json 的 `title` / `blurb` / `intro`，只作為資料保留，**App 不會顯示**（v9 起）：
+  劇照在所有地方（刷牙揭開卡片、得到卡片畫面、畫冊格子和全螢幕檢視、刷牙幻燈片、圖片 alt / 無障礙文字）都**只顯示集數**「第 N 集」，沒有任何說明文字，
+  版面不留空位（`app.js` 的 `shown()`）。萌可和公主維持原本的名稱和簡介。日曆只顯示日子和星星，不顯示卡片文字。
   舊的 `s1_stills/` 和 `img/stills/s1-still-XX.jpg` 已不再使用。
 
 ## 舊資料轉換（schema 1 → 2）
@@ -205,8 +207,15 @@ App 已上線，裝置上可能已有舊資料。第一次開啟新版時自動�
    ```
    （`blurb` 可以按需要修改；**不要改 `id`**，已收集的紀錄靠 id 對應。）
 
-3. 打開 `sw.js`，把 `VERSION` 加一（目前是 `"v8"`，下次改成 `"v9"`，如此類推）。
+3. 打開 `sw.js`，把 `VERSION` 加一（目前是 `"v9"`，下次改成 `"v10"`，如此類推），並把 `data.js` 的 `version` 改成同一個數字（見「版本標籤」）。
 4. 重新上傳整個資料夾。iPhone 上的 App 會在下次開啟時下載新圖片（可能要關掉 App 再開一次）。
+
+## 版本標籤（v9 新增）
+
+- 主頁最底部有一行極小、淡灰色的版本字樣（例如「v9」），不可點、不攔截觸控（`pointer-events: none`），不佔版面，不影響長按標題和按鈕。
+- 數字來自 `data.js` 的 `version`；`sw.js` 不能 import 它，所以 `sw.js` 的 `VERSION` 要一起加一。
+  `tests/draw.test.js` 檢查兩者相同，`tests/e2e.py` 也檢查主頁的標籤等於 `sw.js` 的 VERSION。
+- 每次更新：`sw.js` 的 `VERSION` 和 `data.js` 的 `version` 一起加一。
 
 ## ★ 更換劇照（52 張）
 
@@ -215,7 +224,7 @@ App 已上線，裝置上可能已有舊資料。第一次開啟新版時自動�
    ```bash
    /workspace/.pwvenv/bin/python tools/prepare_images.py
    ```
-3. 在 `data.js` 找到對應的劇照（例如 `id: "s1-still-ep03a"`），`name` / `blurb` / `intro` 照抄 blurbs.json 的 `title` / `blurb` / `intro`：
+3. 在 `data.js` 找到對應的劇照（例如 `id: "s1-still-ep03a"`），`ep`（集數，畫面上顯示「第 N 集」）要正確；`name` / `blurb` / `intro` 照抄 blurbs.json 的 `title` / `blurb` / `intro`（只作資料，不會顯示）：
    ```js
    { id: "s1-still-ep03a", season: "s1", type: "still", ep: 3, name: "樂美與愛心萌可", img: "img/stills/ep03_a.jpg", blurb: "第3集〈不要害羞〉", intro: "戴著頭盔的樂美，肩上坐著愛心萌可。" },
    ```
@@ -279,7 +288,7 @@ uv venv /workspace/.pwvenv && uv pip install --python /workspace/.pwvenv playwri
 
 網站：https://bella1219lee.github.io/momoke-toothbrush/ （公開 repo `bella1219lee/momoke-toothbrush`，branch `main`，根目錄）。
 
-1. 修改後把 `sw.js` 的 `VERSION` 加一（否則已安裝的 App 會繼續用舊快取）。
+1. 修改後把 `sw.js` 的 `VERSION` 和 `data.js` 的 `version` 一起加一（否則已安裝的 App 會繼續用舊快取）。
 2. 跑完上面兩個測試，全部通過。
 3. 提交並推送：
    ```bash

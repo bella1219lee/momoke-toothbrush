@@ -1,7 +1,7 @@
 /* 萌可刷牙 — Service Worker（離線快取）
- * 新增/更換任何檔案後，把 VERSION 加一（例如 "v8" → "v9"），已安裝的 App 會在下次開啟時更新。
+ * 新增/更換任何檔案後，把 VERSION 加一（例如 "v9" → "v10"），並把 data.js 的 version 改成同一個數字，已安裝的 App 會在下次開啟時更新。
  */
-var VERSION = "v8";
+var VERSION = "v9"; // 必須和 data.js 的 version 相同（主頁底部顯示的版本；tests/draw.test.js 會檢查）
 var CACHE = "momoke-brush-" + VERSION;
 importScripts("data.js");
 

@@ -67,6 +67,19 @@ FOAM_JS = """(region) => { const c = document.getElementById('foam'); if (!c || 
     for (let i = 3; i < d.length; i += 4 * 5) { n++; if (d[i] > 24) on++; } return on / n; }"""
 def foam(page, region=None):
     return page.evaluate(FOAM_JS, region)
+def episode_of(b):
+    return "第 %d 集" % int(re.match(r"ep(\d+)_", b["file"]).group(1))
+
+def caption_leaks(page, b):
+    """劇照的舊說明文字（名稱 / 簡介 / 說明 / 標題）有沒有出現在目前看得到的文字、alt、aria-label、title 裡"""
+    return page.evaluate("""(b) => {
+        const texts = [document.body.innerText];
+        document.querySelectorAll('[alt],[aria-label],[title]').forEach(e => { if (e.getClientRects().length > 0) texts.push(e.getAttribute('alt') || '', e.getAttribute('aria-label') || '', e.getAttribute('title') || ''); });
+        const all = texts.join('\\n');
+        const title = (b.blurb.match(/〈(.+)〉/) || [])[1];
+        return [b.title, b.blurb, b.intro, title].filter(x => x && all.includes(x));
+    }""", b)
+
 def music(page):
     return page.evaluate("window.__momoke.music()")
 MUSIC_BASE = 0.55
@@ -145,6 +158,17 @@ with sync_playwright() as p:
     body = page.locator("body").inner_text()
     ok("test" not in body.lower() and "speed" not in body.lower(), "no test params visible in UI")
     ok(page.evaluate("document.querySelector('.mascot img').naturalWidth") > 0, "mascot 愛心萌可 image loads")
+    sw_version = re.search(r'var VERSION = "(v\d+)"', open(os.path.join(APP_DIR, "sw.js"), encoding="utf-8").read()).group(1)
+    ver = page.evaluate("""() => { const e = document.getElementById('app-version'), r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+        const btn = document.getElementById('btn-calendar').getBoundingClientRect();
+        return { text: e.textContent, fs: parseFloat(cs.fontSize), color: cs.color, pe: cs.pointerEvents, top: r.top, bottom: r.bottom, left: r.left, right: r.right,
+                 btnBottom: btn.bottom, vh: window.innerHeight, vw: window.innerWidth, overflow: document.documentElement.scrollHeight > window.innerHeight }; }""")
+    ok(ver["text"] == sw_version, f"home version label {ver['text']!r} equals sw.js VERSION {sw_version!r}")
+    ok(ver["fs"] <= 12 and ver["pe"] == "none" and ver["top"] >= ver["btnBottom"] - 1 and ver["bottom"] <= ver["vh"] and ver["left"] >= 0 and ver["right"] <= ver["vw"],
+       f"version label is small ({ver['fs']}px), below the buttons, inside 390x844 and does not take touches ({ver})")
+    ok(not ver["overflow"], "home with the version label does not scroll on 390x844")
+    sw_text = page.evaluate("fetch('sw.js').then(r => r.text())")
+    ok(('var VERSION = "%s"' % ver["text"]) in sw_text, "label also equals the VERSION the browser fetches from sw.js")
 
     # ---- 2. interrupted brushing keeps the same pending card ----
     page.goto(url("2026-09-26T08:00", 10))
@@ -370,6 +394,7 @@ with sync_playwright() as p:
     ok("得到卡片" in slot(page, "slot-m") and "刷牙得一張卡片" in slot(page, "slot-e"), "18:00 home: morning 得到卡片！ / evening 刷牙得一張卡片")
     ok(text(page, "#home-hint") == "今天已經得到一張卡片！現在刷牙兩分鐘，可以再得到一張！", "18:00 hint")
     shot(page, "01_home.png", 900)
+    page.screenshot(path=os.path.join(SHOTS, "23_home_version.png"))
 
     # ---- 7. evening → card 2 愛心公主 ----
     r = brush(page, "2026-09-26T21:00")
@@ -560,8 +585,8 @@ with sync_playwright() as p:
     ok(r == "capture" and len(state(page)["collected"]) == 5, "after migration evening brushing earns a card")
     page.click("#btn-capture-done")
     page.click("#btn-album"); page.click(".tab[data-tab=still]")
-    ok("正義公主與正正萌可" in page.locator("#album-grid .cell:not(.locked) .cell-name").all_inner_texts()
-       and page.locator('#album-grid img[src="img/stills/ep07_a.jpg"]').count() == 1, "migrated still appears in 劇照 tab as ep07_a 正義公主與正正萌可")
+    ok("第 7 集" in page.locator("#album-grid .cell:not(.locked) .cell-name").all_inner_texts()
+       and page.locator('#album-grid img[src="img/stills/ep07_a.jpg"]').count() == 1, "migrated still appears in 劇照 tab as ep07_a (shown as 第 7 集)")
 
     # ---- 17. slideshow placeholder when nothing collected ----
     page.evaluate("localStorage.clear()")
@@ -580,17 +605,17 @@ with sync_playwright() as p:
     ok(page.evaluate("!!navigator.serviceWorker.controller"), "service worker registered and controlling page")
     for _ in range(40):
         cached = page.evaluate("caches.keys().then(ks => Promise.all(ks.map(k => caches.open(k).then(c => c.keys().then(r => [k, r.map(x => new URL(x.url).pathname)])))))")
-        v8 = dict(cached).get("momoke-brush-v8", [])
-        if len(v8) >= 94: break
+        v9 = dict(cached).get("momoke-brush-v9", [])
+        if len(v9) >= 94: break
         page.wait_for_timeout(250)
     print("  caches:", [(k, len(v)) for k, v in cached])
     all_imgs = page.evaluate("window.MOMOKE_DATA.items.map(i => i.img)")
-    missing = [u for u in all_imgs if "/" + u not in v8]
-    ok(not missing and len(all_imgs) == 81, f"cache v8 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
-    ok(all(f in v8 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v8 holds core files")
-    ok("/audio/s1_op.m4a" in v8, "cache v8 holds the brushing music audio/s1_op.m4a")
-    ok("/audio/s1_home.m4a" in v8, "cache v8 holds the home instrumental audio/s1_home.m4a")
-    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4", "momoke-brush-v5", "momoke-brush-v6", "momoke-brush-v7") for k, _ in cached), "old caches removed")
+    missing = [u for u in all_imgs if "/" + u not in v9]
+    ok(not missing and len(all_imgs) == 81, f"cache v9 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
+    ok(all(f in v9 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v9 holds core files")
+    ok("/audio/s1_op.m4a" in v9, "cache v9 holds the brushing music audio/s1_op.m4a")
+    ok("/audio/s1_home.m4a" in v9, "cache v9 holds the home instrumental audio/s1_home.m4a")
+    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4", "momoke-brush-v5", "momoke-brush-v6", "momoke-brush-v7", "momoke-brush-v8") for k, _ in cached), "old caches removed")
     ctx.set_offline(True)
     stop_server()  # really offline: no server at all
     page.reload(); page.wait_for_selector("#screen-home.active")
@@ -664,12 +689,16 @@ with sync_playwright() as p:
     page.click(".tab[data-tab=still]")
     imgs_loaded(page, "#album-grid img", 52)
     names = page.locator("#album-grid .cell-name").all_inner_texts()
-    ok(names == [b["title"] for b in blurbs], "劇照 tab: 52 stills ordered by episode then a/b, names exactly from blurbs.json")
+    ok(names == [episode_of(b) for b in blurbs], "劇照 tab: 52 stills ordered by episode then a/b, each labelled only 第 N 集")
+    ok(page.evaluate("[...document.querySelectorAll('#album-grid img')].every(i => /^第 \\d+ 集$/.test(i.alt))"), "劇照 tab: image alt text is only 第 N 集")
+    leaks = [caption_leaks(page, b) for b in blurbs]
+    ok(not any(leaks), f"劇照 tab: none of the old captions appear in the visible album text / alt ({[l for l in leaks if l][:2]})")
     srcs = page.evaluate("[...document.querySelectorAll('#album-grid img')].map(i => i.getAttribute('src'))")
     ok(srcs == ["img/stills/" + b["file"] for b in blurbs], "劇照 tab image order ep01_a … ep26_b")
     ok(page.locator("#album-grid .placeholder").count() == 0, "no 圖片準備中 placeholders")
     page.evaluate("window.scrollTo(0, 0)")
     shot(page, "08_album_stills.png")
+    shot(page, "22_album_still.png", 100)
     page.click(".tab[data-tab=princess]")
     page.locator("#album-grid .cell").nth(1).click()
     page.wait_for_function("document.querySelector('#viewer-card img') && document.querySelector('#viewer-card img').naturalWidth > 0")
@@ -681,11 +710,17 @@ with sync_playwright() as p:
         page.locator("#album-grid .cell").nth(idx).click()
         page.wait_for_function("document.querySelector('#viewer-card img') && document.querySelector('#viewer-card img').naturalWidth > 0")
         b = blurbs[idx]
-        good = text(page, "#viewer-name") == b["title"] and text(page, "#viewer-blurb") == b["blurb"] and text(page, "#viewer-intro") == b["intro"]
+        good = (text(page, "#viewer-name") == episode_of(b) and page.locator("#viewer-blurb").is_hidden() and page.locator("#viewer-intro").is_hidden()
+                and text(page, "#viewer-blurb") == "" and text(page, "#viewer-intro") == "" and not caption_leaks(page, b)
+                and page.evaluate("document.querySelector('#viewer-card img').alt") == episode_of(b))
         all_ok = all_ok and good
-        if idx == 13: shot(page, "11_still_fullscreen.png")
+        if idx == 13:
+            shot(page, "11_still_fullscreen.png")
+            page.screenshot(path=os.path.join(SHOTS, "21_still_episode_only.png"))
+            vb = page.locator("#viewer-name").bounding_box(); cb = page.locator("#viewer-count").bounding_box(); nb = page.locator("#viewer-card").bounding_box()
+            ok(vb["y"] - (nb["y"] + nb["height"]) < 120 and vb["y"] + vb["height"] < cb["y"], f"still full-screen: no empty gap where the caption used to be (name {vb['y'] - (nb['y'] + nb['height']):.0f}px below the card)")
         page.click("#viewer-close")
-    ok(all_ok, "still full-screen: title / blurb / intro exactly as in blurbs.json")
+    ok(all_ok, "still full-screen: only 第 N 集 shown (no name / blurb / intro / old caption, alt = 第 N 集)")
 
     # ---- 21. reveal works for a 16:9 still ----
     page.evaluate("""() => {
@@ -704,8 +739,31 @@ with sync_playwright() as p:
         page.wait_for_selector("#screen-brush.finished", timeout=20000)
         ok(foam(page) < 0.001, "16:9 still fully uncovered at 2:00")
     r = brush(page, "2026-11-12T08:00", speed=10, on_brush=still_check)
-    ok(r == "capture" and text(page, "#capture-name") == "粉紅頭髮的哥哥" and "第5集" in text(page, "#capture-blurb"), "still capture: name/blurb from blurbs.json")
+    b5 = [b for b in blurbs if b["file"] == "ep05_b.jpg"][0]
+    ok(r == "capture" and text(page, "#capture-name") == "第 5 集" and page.locator("#capture-blurb").is_hidden() and page.locator("#capture-intro").is_hidden(),
+       "still capture (earned view): only 第 5 集, blurb / intro hidden")
+    ok(not caption_leaks(page, b5) and page.evaluate("document.querySelector('#capture-front img').alt") == "第 5 集", f"still capture: old caption text not in the visible text or alt ({caption_leaks(page, b5)})")
     shot(page, "05b_capture_still.png")
+    page.screenshot(path=os.path.join(SHOTS, "21b_capture_still_episode_only.png"))
+    page.click("#btn-capture-done"); page.wait_for_selector("#screen-home.active")
+    # 時段外刷牙的幻燈片：只收集了劇照時，幻燈片逐張輪流顯示，每一張都只顯示集數
+    page.evaluate("""() => { const st = { schema: 2, days: {}, pending: null, collected: [
+        {id:'s1-still-ep05b',t:0,d:'2026-10-01',s:null},{id:'s1-still-ep03a',t:0,d:'2026-10-01',s:null},{id:'s1-still-ep12b',t:0,d:'2026-10-01',s:null}] };
+        localStorage.setItem('momoke-brush-state-v1', JSON.stringify(st)); }""")
+    by_file = {b["file"]: b for b in blurbs}
+    def still_slide_check():
+        wait_brushing(page)
+        seen = []
+        for _ in range(14):
+            page.wait_for_timeout(250)
+            seen.append(page.evaluate("[document.getElementById('slide-name').textContent, (document.querySelector('#slide-frame img') || {}).alt || '']"))
+        names = {n for n, _ in seen}
+        good = all(re.fullmatch(r"第 \d+ 集", n) and n == a for n, a in seen)
+        leaks = [caption_leaks(page, by_file[f]) for f in ("ep05_b.jpg", "ep03_a.jpg", "ep12_b.jpg")]
+        ok(good and len(names) >= 2 and not any(leaks), f"slideshow of collected stills shows only 第 N 集 on every slide (saw {sorted(names)}), no old caption ({leaks})")
+        page.screenshot(path=os.path.join(SHOTS, "06b_slideshow_still.png"))
+    brush(page, "2026-11-12T14:00", speed=10, on_brush=still_slide_check)
+    page.click("#btn-result-home"); page.wait_for_selector("#screen-home.active")
 
     # ---- 21b. window edges: the kinder of countdown start / real start decides the window ----
     TWO = """() => { const st = { schema: 2, days: {}, pending: null, collected: [{id:'s1-m-01',t:0,d:'2026-11-19',s:'m'},{id:'s1-p-01',t:0,d:'2026-11-19',s:'e'}] };
