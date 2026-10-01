@@ -134,6 +134,7 @@ def imgs_loaded(page, sel, n=None, timeout=10000):
 ROYAL = ["s1-m-0%d" % k for k in range(1, 6)]
 blurbs = json.load(open(os.path.join(V2, "blurbs.json"), encoding="utf-8"))
 blurbs.sort(key=lambda b: b["file"])
+s2_blurbs = json.load(open("/workspace/momoke/images/s2_stills/blurbs.json", encoding="utf-8"))
 
 start_server()
 with sync_playwright() as p:
@@ -159,6 +160,7 @@ with sync_playwright() as p:
     ok("test" not in body.lower() and "speed" not in body.lower(), "no test params visible in UI")
     ok(page.evaluate("document.querySelector('.mascot img').naturalWidth") > 0, "mascot 愛心萌可 image loads")
     sw_version = re.search(r'var VERSION = "(v\d+)"', open(os.path.join(APP_DIR, "sw.js"), encoding="utf-8").read()).group(1)
+    page.wait_for_timeout(800)  # let the screen's fade-in finish before measuring
     ver = page.evaluate("""() => { const e = document.getElementById('app-version'), r = e.getBoundingClientRect(), cs = getComputedStyle(e);
         const btn = document.getElementById('btn-calendar').getBoundingClientRect();
         return { text: e.textContent, fs: parseFloat(cs.fontSize), color: cs.color, pe: cs.pointerEvents, top: r.top, bottom: r.bottom, left: r.left, right: r.right,
@@ -605,17 +607,17 @@ with sync_playwright() as p:
     ok(page.evaluate("!!navigator.serviceWorker.controller"), "service worker registered and controlling page")
     for _ in range(40):
         cached = page.evaluate("caches.keys().then(ks => Promise.all(ks.map(k => caches.open(k).then(c => c.keys().then(r => [k, r.map(x => new URL(x.url).pathname)])))))")
-        v9 = dict(cached).get("momoke-brush-v9", [])
-        if len(v9) >= 94: break
+        v10 = dict(cached).get("momoke-brush-v10", [])
+        if len(v10) >= 166: break
         page.wait_for_timeout(250)
     print("  caches:", [(k, len(v)) for k, v in cached])
     all_imgs = page.evaluate("window.MOMOKE_DATA.items.map(i => i.img)")
-    missing = [u for u in all_imgs if "/" + u not in v9]
-    ok(not missing and len(all_imgs) == 81, f"cache v9 holds all 81 card images incl. 52 stills (missing {missing[:3]})")
-    ok(all(f in v9 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v9 holds core files")
-    ok("/audio/s1_op.m4a" in v9, "cache v9 holds the brushing music audio/s1_op.m4a")
-    ok("/audio/s1_home.m4a" in v9, "cache v9 holds the home instrumental audio/s1_home.m4a")
-    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4", "momoke-brush-v5", "momoke-brush-v6", "momoke-brush-v7", "momoke-brush-v8") for k, _ in cached), "old caches removed")
+    missing = [u for u in all_imgs if "/" + u not in v10]
+    ok(not missing and len(all_imgs) == 153, f"cache v10 holds all 153 card images (81 Season 1 + 72 Season 2 incl. 104 stills) (missing {missing[:3]})")
+    ok(all(f in v10 for f in ["/", "/index.html", "/styles.css", "/data.js", "/logic.js", "/brushfx.js", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png"]), "cache v10 holds core files")
+    ok("/audio/s1_op.m4a" in v10, "cache v10 holds the brushing music audio/s1_op.m4a")
+    ok("/audio/s1_home.m4a" in v10, "cache v10 holds the home instrumental audio/s1_home.m4a")
+    ok(not any(k in ("momoke-brush-v2", "momoke-brush-v3", "momoke-brush-v4", "momoke-brush-v5", "momoke-brush-v6", "momoke-brush-v7", "momoke-brush-v8", "momoke-brush-v9") for k, _ in cached), "old caches removed")
     ctx.set_offline(True)
     stop_server()  # really offline: no server at all
     page.reload(); page.wait_for_selector("#screen-home.active")
@@ -645,10 +647,19 @@ with sync_playwright() as p:
     ok(True, "offline: all 52 still images load from cache")
     r = brush(page, "2026-10-07T08:00", speed=240)
     ok(r == "capture" and text(page, "#capture-name") == "鬧鬧萌可", "offline brushing works (earns 81st card 鬧鬧萌可)")
+    # offline: every Season 2 image (20 萌可 + 52 stills) is served from the precache too
+    page.evaluate("""() => { const st = { schema: 2, days: {}, pending: null, collected: window.MOMOKE_DATA.items.map(it => ({ id: it.id, t: 0, d: '2026-10-01', s: null })) };
+        localStorage.setItem('momoke-brush-state-v1', JSON.stringify(st)); }""")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    page.click("#btn-album"); page.click("#album-season-2")
+    imgs_loaded(page, "#album-grid img", 20)
+    page.click(".tab[data-tab=still]")
+    imgs_loaded(page, "#album-grid img", 52)
+    ok(page.locator("#album-grid .placeholder").count() == 0, "offline: all 72 Season 2 images (20 萌可 + 52 stills) load from cache")
     ctx.set_offline(False)
     start_server()
 
-    # ---- 19. last card 鬧鬧 (#81) via normal draw + celebration ----
+    # ---- 19. last Season 1 card 鬧鬧 (#81): celebration → Season 2 unlock (幸福萌可 gift) ----
     open_home(page, "2026-11-01T08:00")
     page.evaluate("""() => {
         const L = window.__momoke.logic; const ids = [];
@@ -657,19 +668,191 @@ with sync_playwright() as p:
         const st = { schema: 2, days: {}, pending: null, collected: ids.map((id, i) => ({ id, t: 0, d: '2026-10-' + String(i % 28 + 1).padStart(2, '0'), s: null })) };
         localStorage.setItem('momoke-brush-state-v1', JSON.stringify(st));
     }""")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    ok(text(page, "#home-count") == "80 / 81", "fixture: Season 1 at 80 / 81")
+    page.click("#btn-album"); page.wait_for_selector("#screen-album.active")
+    chip2 = page.locator("#album-season-2")
+    ok(chip2.is_disabled() and "第二季 敬請期待" in chip2.inner_text() and "🔒" in chip2.inner_text() and text(page, "#album-season") == "第一季 80 / 81",
+       "album before unlock: 第二季 tab locked 「🔒 第二季 敬請期待」, 第一季 80 / 81")
+    chip2.click(force=True); page.wait_for_timeout(200)
+    ok(text(page, "#album-season") == "第一季 80 / 81" and page.locator("#album-season.on").count() == 1, "tapping the locked 第二季 tab does nothing")
+    ok(page.locator(".tab[data-tab=princess]").is_visible(), "Season 1 album still has the 公主 tab")
+    page.evaluate("window.scrollTo(0, 0)")
+    shot(page, "24_album_s2_locked.png", 300)
+    page.click("#screen-album [data-go=home]"); page.wait_for_selector("#screen-home.active")
     r = brush(page, "2026-11-01T08:00", speed=240)
     ok(r == "capture" and text(page, "#capture-name") == "鬧鬧萌可", "81st card is 鬧鬧萌可")
     ok("第 81 張 / 81 張" in text(page, "#capture-number"), "capture number shows 第 81 張 / 81 張")
+    st = state(page)
+    ok(len(st["collected"]) == 82 and st["collected"][80]["id"] == "s1-m-24" and st["collected"][81]["id"] == "s2-m-01" and st.get("news") == ["s2"],
+       "state after the 81st card: 鬧鬧萌可 kept, 幸福萌可 s2-m-01 gifted (82 cards), unlock notice pending")
+    ok(st["days"]["2026-11-01"]["mc"] == "s1-m-24" and not st["days"]["2026-11-01"].get("ec"), "gift does not use up the evening slot")
     page.click("#btn-capture-done")
     page.wait_for_selector("#screen-celebrate.active")
     ok(text(page, "#celebrate-title") == "恭喜集齊第一季！", "celebration 恭喜集齊第一季！")
-    ok("第二季 敬請期待" in text(page, "#screen-celebrate"), "celebration shows 第二季 敬請期待")
+    ok("第二季開放了！" in text(page, "#screen-celebrate") and page.locator("#btn-celebrate-unlock").is_visible() and page.locator("#btn-celebrate-home").is_hidden(),
+       "celebration shows 第二季開放了！ and a button to the unlock screen")
     shot(page, "12_celebrate.png", 900)
+    page.click("#btn-celebrate-unlock")
+    page.wait_for_selector("#screen-unlock.active")
+    page.wait_for_function("document.querySelectorAll('#unlock-to img, #unlock-from img').length === 2 && [...document.querySelectorAll('#unlock-to img, #unlock-from img')].every(i => i.complete && i.naturalWidth > 0)")
+    ok(text(page, "#unlock-title") == "鬧鬧萌可變成幸福萌可了！" and "第二季開始" in text(page, "#unlock-sub") and "幸福萌可" in text(page, "#unlock-msg"),
+       f"unlock screen: 「鬧鬧萌可變成幸福萌可了！」 / 第二季開始！ ({text(page, '#unlock-title')})")
+    ok(page.evaluate("document.querySelector('#unlock-to img').alt") == "幸福萌可" and page.evaluate("document.querySelector('#unlock-from img').alt") == "鬧鬧萌可", "unlock screen shows 鬧鬧萌可 → 幸福萌可 images")
+    page.wait_for_timeout(800)  # let the fade-in finish before measuring
+    ok(page.evaluate("document.documentElement.scrollWidth <= 390 && document.documentElement.scrollHeight <= 844"), "unlock screen fits 390x844")
+    shot(page, "25_unlock_s2.png", 900)
+    ok("news" not in json.loads(stored(page)), "unlock notice cleared as soon as it is shown (shown once)")
+    page.click("#unlock-album"); page.wait_for_selector("#screen-album.active")
+    ok(text(page, "#album-season-2") == "第二季 1 / 72" and page.locator("#album-season-2.on").count() == 1 and page.locator("#album-season-2").is_enabled(),
+       "album opens on 第二季 with 1 / 72 (幸福萌可 owned)")
+    tabs = [t.strip() for t in page.locator(".tab:visible").all_inner_texts()]
+    ok(tabs == ["萌可 1/20", "劇照 0/52"] and page.locator(".tab[data-tab=princess]").is_hidden(), f"Season 2 album: 萌可 1/20 + 劇照 0/52, no 公主 tab ({tabs})")
+    ok(page.locator("#album-grid .cell").count() == 20 and page.locator("#album-grid .cell:not(.locked)").count() == 1
+       and "幸福萌可" in page.locator("#album-grid .cell:not(.locked) .cell-name").all_inner_texts(), "Season 2 萌可 tab: 20 slots, 幸福萌可 collected")
+    page.click("#album-season"); page.wait_for_timeout(200)
+    ok(text(page, "#album-season") == "第一季 81 / 81" and page.locator('#album-grid .cell[data-id="s1-m-24"]').count() == 1
+       and page.locator(".tab[data-tab=princess]").is_visible(), "Season 1 album unchanged: 81 / 81, 鬧鬧萌可 still there, 公主 tab back")
+    page.click("#screen-album [data-go=home]"); page.wait_for_selector("#screen-home.active")
+    ok(text(page, "#home-count") == "1 / 72" and "第二季" in text(page, "#home-label"), f"home progress shows the current season: {text(page, '#home-label')} {text(page, '#home-count')}")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    ok(page.locator("#screen-unlock.active").count() == 0 and text(page, "#home-count") == "1 / 72" and len(state(page)["collected"]) == 82, "reload: unlock screen not shown again, progress kept (1 / 72)")
+    # same evening: next brushing earns a Season 2 card (not 幸福萌可 again)
+    r = brush(page, "2026-11-01T20:00", speed=240)
+    nm = text(page, "#capture-name")
+    st = state(page)
+    ok(r == "capture" and "第 2 張 / 72 張" in text(page, "#capture-number") and len(st["collected"]) == 83 and st["collected"][82]["id"].startswith("s2-") and st["collected"][82]["id"] != "s2-m-01",
+       f"Season 2 brushing continues: next counted brushing earns Season 2 card 2 / 72 ({nm})")
+    page.click("#btn-capture-done"); page.wait_for_selector("#screen-home.active")
+    ok(text(page, "#home-count") == "2 / 72", "home 2 / 72")
+    ok(page.locator("#screen-unlock.active").count() == 0, "no second unlock screen")
+    # v9 state with Season 1 already complete (no Season 2 data): first open after the update gifts 幸福萌可 + shows the unlock once
+    page.evaluate("""() => { const items = window.MOMOKE_DATA.items.filter(i => i.season === 's1');
+        localStorage.setItem('momoke-brush-state-v1', JSON.stringify({ schema: 2, days: { '2026-10-30': { m: 1, e: 2, mc: 's1-m-24', ec: null, x: 0 } }, pending: null,
+            collected: items.map((it, i) => ({ id: it.id, t: 0, d: '2026-10-' + String(i % 28 + 1).padStart(2, '0'), s: null })) })); }""")
+    page.reload(); page.wait_for_selector("#screen-unlock.active")
+    st = state(page)
+    ok(len(st["collected"]) == 82 and [c["id"] for c in st["collected"][:81]] == [i["id"] for i in page.evaluate("window.MOMOKE_DATA.items.filter(i => i.season === 's1')")]
+       and st["collected"][81]["id"] == "s2-m-01" and st["days"]["2026-10-30"]["mc"] == "s1-m-24", "existing complete Season 1 progress kept intact; 幸福萌可 added on first open after update")
+    page.click("#unlock-album"); page.click("#screen-album [data-go=home]"); page.wait_for_selector("#screen-home.active")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    ok(page.locator("#screen-unlock.active").count() == 0 and text(page, "#home-count") == "1 / 72", "… and the unlock screen appears only once")
+    # a counted brushing 2 days later at the evening edge still follows the normal rules (same card kept after stopping)
+    page.evaluate("""() => { const st = JSON.parse(localStorage.getItem('momoke-brush-state-v1'));
+        st.pending = { id: 's2-still-ep05b', n: st.collected.length }; localStorage.setItem('momoke-brush-state-v1', JSON.stringify(st)); }""")
+    def s2_still_reveal():
+        page.wait_for_function("window.__momoke.elapsed() >= 20000", timeout=20000)
+        ok(page.get_attribute("#reveal", "data-id") == "s2-still-ep05b" and page.locator("#reveal.wide").is_visible(), "pending Season 2 still shown in the wide reveal frame while brushing")
+    r = brush(page, "2026-11-05T08:00", speed=10, on_brush=s2_still_reveal)
+    b5s2 = [b for b in s2_blurbs if b["file"] == "ep05_b.jpg"][0]
+    ok(r == "capture" and text(page, "#capture-name") == "第 5 集" and page.locator("#capture-blurb").is_hidden() and page.locator("#capture-intro").is_hidden()
+       and "第 2 張 / 72 張" in text(page, "#capture-number"), "earned Season 2 still: only 「第 5 集」, no caption, 第 2 張 / 72 張")
+    ok(not caption_leaks(page, b5s2), f"Season 2 still: old caption text not visible anywhere ({caption_leaks(page, b5s2)})")
+    page.screenshot(path=os.path.join(SHOTS, "27_s2_still_card.png"))
+    page.click("#btn-capture-done"); page.wait_for_selector("#screen-home.active")
+
+    # ---- 19b. Season 2 album with a few cards, season switch, viewer, slideshow of both seasons ----
+    page.evaluate("""() => { const L = window.__momoke.logic, D = window.MOMOKE_DATA;
+        const ids = D.items.filter(i => i.season === 's1').map(i => i.id).concat(['s2-m-01','s2-m-03','s2-still-ep02a','s2-m-07','s2-still-ep05b','s2-m-12','s2-still-ep09a','s2-m-14','s2-still-ep13b','s2-m-18','s2-still-ep20a','s2-still-ep26b']);
+        localStorage.setItem('momoke-brush-state-v1', JSON.stringify({ schema: 2, days: {}, pending: null, collected: ids.map((id, i) => ({ id, t: 0, d: '2026-10-' + String(i % 28 + 1).padStart(2, '0'), s: null })) })); }""")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    page.click("#btn-album"); page.wait_for_selector("#screen-album.active")
+    ok(text(page, "#album-season-2") == "第二季 12 / 72" and text(page, "#album-season") == "第一季 81 / 81", "Season chips show 第一季 81 / 81 and 第二季 12 / 72")
+    ok(page.locator("#album-season-2.on").count() == 1, "album opens on the current season (第二季)")
+    tabs = [t.strip() for t in page.locator(".tab:visible").all_inner_texts()]
+    ok(tabs == ["萌可 6/20", "劇照 6/52"], f"Season 2 tabs 萌可 6/20, 劇照 6/52 ({tabs})")
+    imgs_loaded(page, "#album-grid img", 6)
+    names = page.locator("#album-grid .cell:not(.locked) .cell-name").all_inner_texts()
+    ok(names == ["幸福萌可", "畫畫萌可", "寶寶萌可", "變身萌可", "玩玩萌可／樂樂萌可", "電電萌可"], f"Season 2 萌可 names exactly from manifest.json ({names})")
+    ok(page.locator("#album-grid .cell").count() == 20 and page.locator("#album-grid .cell.locked .cell-name").first.inner_text() == "？？？", "Season 2 萌可 tab: 20 slots, locked ones show ？？？")
+    page.evaluate("window.scrollTo(0, 0)")
+    shot(page, "26_album_s2.png", 300)
+    page.locator('#album-grid .cell[data-id="s2-m-03"]').click()
+    page.wait_for_selector("#viewer:not([hidden])")
+    ok(text(page, "#viewer-name") == "畫畫萌可" and page.locator("#viewer-blurb").is_hidden() and text(page, "#viewer-type") == "魔方萌可", "Season 2 萌可 viewer: name only, no blurb (no invented description)")
+    page.click("#viewer-close")
+    page.click(".tab[data-tab=still]")
+    imgs_loaded(page, "#album-grid img", 6)
+    nm = page.locator("#album-grid .cell:not(.locked) .cell-name").all_inner_texts()
+    ok(page.locator("#album-grid .cell").count() == 52 and nm == ["第 2 集", "第 5 集", "第 9 集", "第 13 集", "第 20 集", "第 26 集"],
+       f"Season 2 劇照 tab: 52 slots, 6 collected, each labelled only 第 N 集 ({nm})")
+    ok(page.evaluate("[...document.querySelectorAll('#album-grid img')].every(i => /^第 \\d+ 集$/.test(i.alt))") and page.locator("#album-grid .placeholder").count() == 0, "Season 2 stills: alt text only 第 N 集, images load")
+    page.locator("#album-grid .cell:not(.locked)").first.click()
+    page.wait_for_selector("#viewer:not([hidden])")
+    page.wait_for_function("document.querySelector('#viewer-card img') && document.querySelector('#viewer-card img').naturalWidth > 0")
+    ok(text(page, "#viewer-name") == "第 2 集" and page.locator("#viewer-blurb").is_hidden() and page.locator("#viewer-intro").is_hidden() and "劇照" in text(page, "#viewer-type")
+       and not caption_leaks(page, [b for b in s2_blurbs if b["file"] == "ep02_a.jpg"][0]), "Season 2 still viewer: only 第 2 集, no caption")
+    page.click("#viewer-close")
+    page.click("#album-season"); page.wait_for_timeout(200)
+    ok(text(page, "#album-season") == "第一季 81 / 81" and page.locator(".tab[data-tab=princess]").is_visible() and page.locator(".tab[data-tab=momoke] small").inner_text() == "24/24", "switch back to Season 1: 81 / 81, 公主 tab visible, 萌可 24/24")
+    page.click("#album-season-2"); page.wait_for_timeout(200)
+    ok(page.locator(".tab[data-tab=princess]").is_hidden(), "switch to Season 2: 公主 tab hidden")
+    # calendar keeps working
+    page.click("#screen-album [data-go=home]"); page.click("#btn-calendar"); page.wait_for_selector("#screen-calendar.active")
+    ok(page.locator("#cal-grid .cal-day").count() >= 28, "calendar still opens with Season 2 data")
+    # slideshow of collected cards (non-counting brushing) includes cards from both seasons
+    page.click("#screen-calendar [data-go=home]"); page.wait_for_selector("#screen-home.active")
+    def both_slides():
+        wait_brushing(page)
+        seen = set()
+        for _ in range(60):
+            page.wait_for_timeout(100)
+            seen.add(page.evaluate("document.getElementById('slide-frame').getAttribute('data-id')"))
+            if any(x and x.startswith("s2-") for x in seen) and any(x and x.startswith("s1-") for x in seen): break
+        ok(any(x and x.startswith("s2-") for x in seen) and any(x and x.startswith("s1-") for x in seen), f"slideshow while brushing shows collected cards of both seasons ({sorted(x for x in seen if x)[:4]}…)")
+    brush(page, "2026-11-06T14:00", speed=10, on_brush=both_slides)
+    page.click("#btn-result-home"); page.wait_for_selector("#screen-home.active")
+
+    # ---- 19c. both seasons complete (153 cards): no crash, no more draws ----
+    page.evaluate("""() => { const D = window.MOMOKE_DATA;
+        localStorage.setItem('momoke-brush-state-v1', JSON.stringify({ schema: 2, days: {}, pending: null, collected: D.items.map((it, i) => ({ id: it.id, t: 0, d: '2026-10-' + String(i % 28 + 1).padStart(2, '0'), s: null })) })); }""")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    ok(text(page, "#home-count") == "72 / 72" and "恭喜集齊第二季" in text(page, "#home-hint"), f"both complete: home 72 / 72, hint 恭喜集齊第二季 ({text(page, '#home-hint')})")
+    page.click("#home-collect"); page.wait_for_selector("#screen-celebrate.active")
+    ok(text(page, "#celebrate-title") == "恭喜集齊第二季！" and page.locator("#celebrate-box").is_hidden() and page.locator("#btn-celebrate-unlock").is_hidden(),
+       "completing Season 2: 恭喜集齊第二季！ (no further season teaser)")
+    page.click("#btn-celebrate-home"); page.wait_for_selector("#screen-home.active")
     def complete_check():
         page.wait_for_timeout(300)
-        ok(page.locator("#slideshow").is_visible() and "集齊" in text(page, "#brush-caption"), "after completion: slideshow while brushing")
-    r = brush(page, "2026-11-01T20:00", speed=240, on_brush=complete_check)
-    ok(r == "result" and "集齊" in text(page, "#result-msg"), "after completion, brushing still works (no more cards)")
+        ok(page.locator("#slideshow").is_visible() and "集齊" in text(page, "#brush-caption"), "after both seasons: slideshow while brushing")
+    r = brush(page, "2026-11-07T20:00", speed=240, on_brush=complete_check)
+    ok(r == "result" and "集齊" in text(page, "#result-msg") and len(state(page)["collected"]) == 153, "after both seasons, brushing still works (no more cards, nothing breaks)")
+    page.click("#btn-result-home"); page.wait_for_selector("#screen-home.active")
+    # finishing Season 2: last card 妖妖萌可 → 恭喜集齊第二季！
+    page.evaluate("""() => { const D = window.MOMOKE_DATA; const ids = D.items.filter(i => i.id !== 's2-m-20').map(i => i.id);
+        localStorage.setItem('momoke-brush-state-v1', JSON.stringify({ schema: 2, days: {}, pending: null, collected: ids.map((id, i) => ({ id, t: 0, d: '2026-10-' + String(i % 28 + 1).padStart(2, '0'), s: null })) })); }""")
+    r = brush(page, "2026-11-08T08:00", speed=240)
+    ok(r == "capture" and text(page, "#capture-name") == "妖妖萌可" and "第 72 張 / 72 張" in text(page, "#capture-number"), "last Season 2 card is 妖妖萌可 (72 / 72)")
+    page.click("#btn-capture-done"); page.wait_for_selector("#screen-celebrate.active")
+    ok(text(page, "#celebrate-title") == "恭喜集齊第二季！", "celebration 恭喜集齊第二季！ after 妖妖萌可")
+
+    # ---- 19d. backup export / import round trip with Season 2 cards ----
+    page.evaluate("""() => { const D = window.MOMOKE_DATA;
+        const ids = D.items.filter(i => i.season === 's1').map(i => i.id).concat(['s2-m-01','s2-m-05','s2-still-ep03a','s2-still-ep03b']);
+        localStorage.setItem('momoke-brush-state-v1', JSON.stringify({ schema: 2, days: { '2026-11-02': { m: 1, e: null, mc: 's2-m-05', ec: null, x: 0 } }, pending: null, news: ['s2'],
+            collected: ids.map((id, i) => ({ id, t: 0, d: '2026-10-' + String(i % 28 + 1).padStart(2, '0'), s: null })) })); }""")
+    page.goto(url("2026-11-09T10:00", 60)); page.wait_for_selector("#screen-unlock.active")   # pending notice → shown once
+    page.click("#unlock-album"); page.click("#screen-album [data-go=home]"); page.wait_for_selector("#screen-home.active")
+    open_parent(page)
+    ok("第二季 4 / 72" in text(page, "#parent-info"), f"parent info mentions Season 2 progress ({text(page, '#parent-info')})")
+    with page.expect_download() as dl:
+        page.click("#btn-export")
+    bk2 = "/tmp/momoke-backup-s2.json"; dl.value.save_as(bk2)
+    bd = json.load(open(bk2, encoding="utf-8"))
+    ok(len(bd["state"]["collected"]) == 85 and sum(1 for c in bd["state"]["collected"] if c["id"].startswith("s2-")) == 4 and bd["state"]["schema"] == 2, "export contains 81 + 4 Season 2 cards")
+    page.click("#btn-reset"); page.wait_for_selector("#screen-home.active")
+    ok(text(page, "#home-count") == "0 / 81", "reset (fixture) clears everything")
+    open_parent(page)
+    page.set_input_files("#import-file", bk2); page.wait_for_timeout(700)
+    st = state(page)
+    ok(len(st["collected"]) == 85 and [c["id"] for c in st["collected"]] == [c["id"] for c in bd["state"]["collected"]] and st["days"]["2026-11-02"]["mc"] == "s2-m-05", "import restores 85 cards in the same order incl. Season 2")
+    ok(text(page, "#home-count") == "4 / 72", f"after import home shows Season 2 progress 4 / 72 ({text(page, '#home-count')})")
+    page.reload(); page.wait_for_selector("#screen-home.active")
+    ok(len(state(page)["collected"]) == 85 and text(page, "#home-count") == "4 / 72", "reload keeps the imported Season 1 + 2 state")
+    # old backups (Season 1 only, 17 cards) still import and stay on Season 1
+    open_parent(page)
+    page.set_input_files("#import-file", backup); page.wait_for_timeout(700)
+    ok(text(page, "#home-count") == "17 / 81" and text(page, "#home-label") == "已收集", "old Season 1 backup still imports (17 / 81)")
 
     # ---- 20. all princesses + stills collected: names from blurbs.json ----
     open_home(page, "2026-11-10T10:00")
@@ -986,7 +1169,7 @@ try:
     s2t = OpenCC("s2t"); t2s = OpenCC("t2s")
     # a character is suspicious if converting s→t changes it (it is a simplified form)
     suspicious = sorted(set(ch for ch in set(strings) if s2t.convert(ch) != ch and t2s.convert(s2t.convert(ch)) == ch))
-    ALLOW = set("著台床秘")  # standard Traditional (HK/TW) forms; OpenCC maps them to variants 着/臺/牀/祕
+    ALLOW = set("著台床秘吃岩")  # standard Traditional (HK/TW) forms; OpenCC maps them to variants 着/臺/牀/祕/喫/巖
     suspicious = [c for c in suspicious if c not in ALLOW]
     ok(not suspicious, f"no simplified characters in UI text {suspicious}")
 except ImportError:

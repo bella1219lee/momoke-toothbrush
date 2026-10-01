@@ -37,7 +37,7 @@
       <p class="hint" id="home-hint"></p>
     </div>
     <button class="collect-bar" id="home-collect" type="button">
-      <span class="collect-label">已收集</span>
+      <span class="collect-label" id="home-label">已收集</span>
       <span class="collect-count" id="home-count">0 / 81</span>
       <span class="collect-track"><i id="home-bar"></i></span>
     </button>
@@ -152,9 +152,9 @@
       <h2>我的畫冊</h2>
       <span class="head-spacer"></span>
     </header>
-    <div class="season-bar">
-      <span class="season-chip on" id="album-season">第一季 0 / 81</span>
-      <span class="season-chip locked">🔒 第二季 敬請期待</span>
+    <div class="season-bar" role="tablist" aria-label="季度">
+      <button class="season-chip on" id="album-season" data-season="s1" role="tab" type="button">第一季 0 / 81</button>
+      <button class="season-chip locked" id="album-season-2" data-season="s2" role="tab" type="button">🔒 第二季 敬請期待</button>
     </div>
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="momoke" role="tab" type="button">萌可</button>
@@ -188,8 +188,24 @@
     <div class="celebrate-emoji">🏆</div>
     <h2 class="celebrate-title" id="celebrate-title">恭喜集齊第一季！</h2>
     <p class="result-msg">你每天都認真刷牙，<br>收集了全部卡片！</p>
-    <div class="locked-card"><span class="lock">🔒</span><span id="celebrate-next">第二季 敬請期待</span></div>
-    <button class="btn btn-purple" data-go="album" type="button">看看我的畫冊</button>
+    <div class="locked-card" id="celebrate-box"><span class="lock" id="celebrate-lock">🔒</span><span id="celebrate-next">第二季 敬請期待</span></div>
+    <button class="btn btn-pink" id="btn-celebrate-unlock" type="button" hidden>下一步</button>
+    <button class="btn btn-purple" id="btn-celebrate-album" data-go="album" type="button">看看我的畫冊</button>
+    <button class="btn btn-pink" id="btn-celebrate-home" data-go="home" type="button">回到主頁</button>
+  </section>
+
+  <!-- 新一季開始：鬧鬧萌可變成幸福萌可（第二季第 1 張直接送出，只顯示一次） -->
+  <section id="screen-unlock" class="screen" aria-label="第二季開始">
+    <div class="sparkles on" aria-hidden="true" id="unlock-sparkles"></div>
+    <h2 class="unlock-sub" id="unlock-sub">第二季開始！</h2>
+    <h2 class="celebrate-title" id="unlock-title">鬧鬧萌可變成幸福萌可了！</h2>
+    <div class="unlock-cards">
+      <div class="unlock-card small" id="unlock-from"></div>
+      <div class="unlock-arrow" id="unlock-arrow" aria-hidden="true">➜</div>
+      <div class="unlock-card" id="unlock-to"></div>
+    </div>
+    <p class="result-msg" id="unlock-msg"></p>
+    <button class="btn btn-purple" id="unlock-album" type="button">看看我的畫冊</button>
     <button class="btn btn-pink" data-go="home" type="button">回到主頁</button>
   </section>
 

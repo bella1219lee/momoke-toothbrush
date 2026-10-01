@@ -80,7 +80,7 @@
     current = name;
     window.scrollTo(0, 0);
     if (name === "home") { renderHome(); homeMusic(); }
-    if (name === "album") renderAlbum();
+    if (name === "album") { albumSeason = L.displaySeasonId(state); renderAlbum(); }
     if (name === "calendar") { calMonth = null; renderCalendar(); }
   }
   document.addEventListener("click", function (e) {
@@ -113,7 +113,8 @@
   }
 
   // ---------- 主頁 ----------
-  function s1Total() { return L.seasonItems("s1").length; }
+  function seasonTotal(sid) { return L.seasonItems(sid).length; }
+  function seasonName(sid) { var s = L.season(sid); return s && s.name || sid; }
   function renderHome() {
     var ts = now();
     var key = L.dayKey(ts);
@@ -128,7 +129,10 @@
     setSlot("slot-m", slotInfo(day.m, day.mc, slotNow === "morning", morningOver, false, complete));
     setSlot("slot-e", slotInfo(day.e, day.ec, eveningStarted, false, !eveningStarted, complete));
     $("home-hint").textContent = hintText(ts, day, complete, slotNow, h);
-    var n = L.collectedIn(state, "s1").length, total = s1Total();
+    // 主頁顯示目前收集中的季度的進度（第二季開始後顯示 x / 72）
+    var sid = L.displaySeasonId(state);
+    var n = L.collectedIn(state, sid).length, total = seasonTotal(sid);
+    $("home-label").textContent = sid === "s1" ? "已收集" : seasonName(sid) + " 已收集";
     $("home-count").textContent = n + " / " + total;
     $("home-bar").style.width = (100 * n / total) + "%";
   }
@@ -151,6 +155,7 @@
   }
   function hintText(ts, day, complete, slotNow, h) {
     if (complete) {
+      if (L.isSeasonComplete(state, "s2")) return "恭喜集齊第二季！每天也要好好刷牙！";
       if (L.isSeasonComplete(state, "s1")) return "恭喜集齊第一季！每天也要好好刷牙！";
       return "每天也要好好刷牙！";
     }
@@ -168,7 +173,8 @@
                   : "早上的刷牙錯過了。晚上五點後刷牙，還可以得到一張卡片！";
   }
   $("home-collect").addEventListener("click", function () {
-    if (L.isSeasonComplete(state, "s1")) go("celebrate"); else go("album");
+    var sid = L.displaySeasonId(state);
+    if (L.isSeasonComplete(state, sid)) showCelebrate(sid); else go("album");
   });
   $("btn-album").addEventListener("click", function () { go("album"); });
   $("btn-calendar").addEventListener("click", function () { go("calendar"); });
@@ -814,7 +820,7 @@
   $("btn-result-home").addEventListener("click", function () { go("home"); });
 
   // ---------- 捕捉動畫 ----------
-  var pendingCelebrate = false;
+  var pendingCelebrate = null;   // 剛集齊的季度 id（捕捉畫面之後顯示恭喜畫面）
   var captureTimers = [];
   function makeSparkles(box, count) {
     box.innerHTML = "";
@@ -835,7 +841,7 @@
     opts = opts || {};
     var item = res.item;
     captureTimers.forEach(clearTimeout); captureTimers = [];
-    pendingCelebrate = pendingCelebrate || !!res.seasonComplete;
+    pendingCelebrate = res.seasonComplete || pendingCelebrate;
     var card = $("flip-card");
     card.classList.remove("go", "revealed", "instant", "popin");
     card.classList.toggle("wide", item.type === "still");
@@ -881,7 +887,7 @@
   }
   $("btn-capture-done").addEventListener("click", function () {
     if (captureQueue.length) { showCapture(captureQueue.shift()); return; }
-    if (pendingCelebrate) { pendingCelebrate = false; showCelebrate(); }
+    if (pendingCelebrate) { var cs = pendingCelebrate; pendingCelebrate = null; showCelebrate(cs); }
     else go("home");
   });
   /** 轉換舊資料 / 匯入時補發的卡片：逐張播放捕捉動畫 */
@@ -891,27 +897,77 @@
     showCapture(list[0]);
     return true;
   }
-  function showCelebrate() {
-    var s1 = L.season("s1"), s2 = L.season("s2");
-    $("celebrate-title").textContent = s1.completeTitle || "恭喜集齊第一季！";
-    $("celebrate-next").textContent = (s2 && !s2.open) ? (s2.lockedText || "第二季 敬請期待") : "第二季開放了！";
+  /** 集齊一季的恭喜畫面。第一季集齊而第二季剛開放（有新通知）時，按鈕帶她去看「鬧鬧萌可變成幸福萌可」。 */
+  function showCelebrate(sid) {
+    sid = sid || L.displaySeasonId(state);
+    var cur = L.season(sid), next = null;
+    for (var i = 0; i < DATA.seasons.length; i++) if (DATA.seasons[i].id === sid) next = DATA.seasons[i + 1] || null;
+    var news = L.pendingNews(state);
+    $("celebrate-title").textContent = cur.completeTitle || "恭喜集齊" + cur.name + "！";
+    var box = $("celebrate-box");
+    box.hidden = !next;
+    if (next) {
+      var open = L.seasonUnlocked(state, next.id);
+      box.classList.toggle("open", open);
+      $("celebrate-lock").textContent = open ? "🎁" : "🔒";
+      $("celebrate-next").textContent = open ? next.name + "開放了！" : (next.lockedText || "敬請期待");
+    }
+    var toUnlock = !!news && !!next && L.seasonUnlocked(state, next.id);
+    $("btn-celebrate-unlock").hidden = !toUnlock;
+    $("btn-celebrate-album").hidden = toUnlock;
+    $("btn-celebrate-home").hidden = toUnlock;
     makeSparkles($("celebrate-sparkles"), 26);
     sound.fanfare();
     go("celebrate");
-    // 第二季掛鉤：之後在這裡加入「鬧鬧萌可變成幸福萌可」的動畫（見 README）。
   }
+  $("btn-celebrate-unlock").addEventListener("click", function () { showUnlock(); });
+
+  /** 新一季開始：鬧鬧萌可變成幸福萌可（第二季第 1 張直接送出）。只顯示一次（顯示時就清除通知並保存） */
+  function showUnlock() {
+    var sid = L.pendingNews(state);
+    var s = sid && L.season(sid);
+    var to = s && s.transform && L.byId[s.transform.to], from = s && s.transform && L.byId[s.transform.from];
+    if (!to) { if (sid) { L.clearNews(state, sid); save(); } return false; }
+    L.clearNews(state, sid); save();
+    $("unlock-title").textContent = (from ? from.name + "變成" + to.name + "了！" : "得到" + to.name + "了！");
+    $("unlock-sub").textContent = s.name + "開始！";
+    $("unlock-msg").textContent = "你得到了" + s.name + "的第一張卡片：" + to.name + "。繼續每天刷牙，收集更多卡片吧！";
+    [["unlock-from", from], ["unlock-to", to]].forEach(function (p) {
+      var box = $(p[0]); box.innerHTML = "";
+      if (p[1]) box.appendChild(cardVisual(p[1]));
+    });
+    $("unlock-from").hidden = !from; $("unlock-arrow").hidden = !from;
+    $("unlock-album").setAttribute("data-season", sid);
+    makeSparkles($("unlock-sparkles"), 26);
+    sound.fanfare();
+    go("unlock");
+    return true;
+  }
+  $("unlock-album").addEventListener("click", function () { go("album"); });
 
   // ---------- 畫冊 ----------
+  // 上方「第一季 / 第二季」切換；下面的 萌可 / 公主 / 劇照 分頁按季度各自計算（第二季沒有公主，不顯示公主分頁）。
+  // 第二季未開放（第一季未集齊）時，第二季顯示「🔒 第二季 敬請期待」，不能點。
   var albumTab = "momoke";
+  var albumSeason = "s1";
   var TAB_NAMES = { momoke: "萌可", princess: "公主", still: "劇照" };
-  function tabItems(tab) { return L.seasonItems("s1").filter(function (it) { return it.type === tab; }); }
+  function tabItems(tab, sid) { return L.seasonItems(sid || albumSeason).filter(function (it) { return it.type === tab; }); }
   function renderAlbum() {
     var have = L.collectedSet(state);
-    var s1n = L.collectedIn(state, "s1").length;
-    $("album-season").textContent = "第一季 " + s1n + " / " + s1Total();
+    if (!L.seasonUnlocked(state, albumSeason)) albumSeason = "s1";
+    var chips = [["album-season", "s1"], ["album-season-2", "s2"]];
+    chips.forEach(function (c) {
+      var sid = c[1], chip = $(c[0]), open = L.seasonUnlocked(state, sid), sdef = L.season(sid);
+      chip.classList.toggle("on", open && sid === albumSeason);
+      chip.classList.toggle("locked", !open);
+      chip.disabled = !open;
+      chip.setAttribute("aria-selected", open && sid === albumSeason ? "true" : "false");
+      chip.textContent = open ? seasonName(sid) + " " + L.collectedIn(state, sid).length + " / " + seasonTotal(sid) : "🔒 " + (sdef.lockedText || seasonName(sid) + " 敬請期待");
+    });
     document.querySelectorAll(".tab").forEach(function (t) {
       var tab = t.getAttribute("data-tab");
       var items = tabItems(tab);
+      t.hidden = !items.length;
       var n = items.filter(function (it) { return have[it.id]; }).length;
       t.classList.toggle("active", tab === albumTab);
       t.setAttribute("aria-selected", tab === albumTab ? "true" : "false");
@@ -919,6 +975,7 @@
       t.appendChild(document.createTextNode(TAB_NAMES[tab] + " "));
       t.appendChild(el("small", "", n + "/" + items.length));
     });
+    if (!tabItems(albumTab).length) { albumTab = "momoke"; return renderAlbum(); }
     var grid = $("album-grid");
     grid.innerHTML = "";
     grid.classList.toggle("grid-still", albumTab === "still");
@@ -937,6 +994,13 @@
       grid.appendChild(c);
     });
   }
+  ["album-season", "album-season-2"].forEach(function (id) {
+    $(id).addEventListener("click", function () {
+      var sid = this.getAttribute("data-season");
+      if (!L.seasonUnlocked(state, sid)) return;
+      albumSeason = sid; renderAlbum();
+    });
+  });
   document.querySelectorAll(".tab").forEach(function (t) {
     t.addEventListener("click", function () { albumTab = t.getAttribute("data-tab"); renderAlbum(); });
   });
@@ -1051,7 +1115,9 @@
   })();
   function openParent() {
     var days = Object.keys(state.days).filter(function (k) { var d = state.days[k]; return d.m || d.e; }).length;
-    $("parent-info").textContent = "已收集 " + L.collectedIn(state, "s1").length + " / " + s1Total() + " 張卡片，共有 " + days + " 天的刷牙紀錄。";
+    var info = "已收集 " + L.collectedIn(state, "s1").length + " / " + seasonTotal("s1") + " 張卡片";
+    if (L.seasonUnlocked(state, "s2")) info += "（第二季 " + L.collectedIn(state, "s2").length + " / " + seasonTotal("s2") + " 張）";
+    $("parent-info").textContent = info + "，共有 " + days + " 天的刷牙紀錄。";
     renderMusicToggle();
     renderHomeMusicToggle();
     renderReadyToggle();
@@ -1135,7 +1201,8 @@
       if (obj && obj.settings && typeof obj.settings === "object") { settings = L.normalizeSettings(obj.settings); saveSettings(); }
       $("parent").hidden = true;
       alert("匯入完成！");
-      if (!playGrants(m.granted)) go("home");
+      if (L.applyUnlocks(state, now()).length) save();
+      if (!playGrants(m.granted) && !(L.pendingNews(state) && showUnlock())) go("home");
     };
     r.readAsText(f);
   });
@@ -1150,8 +1217,10 @@
   // ---------- 啟動 ----------
   // 版本標籤：數字來自 data.js 的 version（sw.js 的 VERSION 必須相同，tests/draw.test.js 會檢查）
   $("app-version").textContent = DATA.version || "";
+  // 第一季已集齊而第二季的第一張還沒送出（例如舊版本時集齊的資料）：現在送出；有還沒看過的「第二季開始」通知就顯示一次
+  if (L.applyUnlocks(state, now()).length) save();
   renderHome();
-  if (!playGrants(migratedGrants)) homeMusic(); // 先試一次（iOS 通常會拒絕，輕觸主頁後就會開始）
+  if (!playGrants(migratedGrants) && !(L.pendingNews(state) && showUnlock())) homeMusic(); // 先試一次（iOS 通常會拒絕，輕觸主頁後就會開始）
   setInterval(function () { if (current === "home" && document.visibilityState === "visible") renderHome(); }, 60000);
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });

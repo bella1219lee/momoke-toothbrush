@@ -9,7 +9,10 @@
  *   { schema: 2,
  *     days: { "YYYY-MM-DD": { m, e, mc, ec, x } },   m/e：該時段第一次完成刷牙的時間；mc/ec：該時段得到的卡片 id；x：時段外刷牙次數
  *     collected: [ { id, t, d, s } ],                 按得到的次序；s："m" | "e" | null（舊資料 / 補發）
- *     pending: { id, n } | null }                     已決定但未完成的下一張卡（n = 決定時已收集的張數）
+ *     pending: { id, n } | null,                      已決定但未完成的下一張卡（n = 決定時已收集的張數）
+ *     news: ["s2"] }                                  （可省略）還沒有顯示過的「新一季開始」通知（季度 id）；顯示後移除
+ * 第二季（72 張）：第一季集齊後開放；鬧鬧萌可變成幸福萌可 → s2-m-01 直接送出（applyUnlocks，不佔刷牙時段），
+ * 之後照樣每次刷牙得一張，妖妖萌可（s2-m-20）最後。進度資料格式仍是 schema 2，舊資料不用轉換（news 沒有就當作沒有）。
  * 舊格式（schema 1）：days[k] = { m, e, cap, x }，由 migrateState() 轉換。
  */
 (function (root, factory) {
@@ -81,6 +84,11 @@
         x: d.x || 0
       };
     });
+    if (Array.isArray(s.news)) {   // 只有真的有通知時才有這個鍵（舊資料的格式完全不變）
+      var nw = [];
+      s.news.forEach(function (sid) { if (typeof sid === "string" && season(sid) && nw.indexOf(sid) < 0) nw.push(sid); });
+      if (nw.length) out.news = nw;
+    }
     if (s.pending && validId(s.pending.id) && !seen[s.pending.id] && s.pending.n === out.collected.length) {
       out.pending = { id: s.pending.id, n: s.pending.n };
     }
@@ -111,6 +119,51 @@
   function isSeasonComplete(state, sid) {
     var items = seasonItems(sid);
     return items.length > 0 && collectedIn(state, sid).length >= items.length;
+  }
+
+  /** 這一季對她來說是否已經開放：data.js 的 open 為 true，而且上一季已經集齊（第一季一開始就開放） */
+  function seasonUnlocked(state, sid) {
+    for (var i = 0; i < DATA.seasons.length; i++) {
+      var s = DATA.seasons[i];
+      if (!s.open || !seasonItems(s.id).length) return false;
+      if (s.id === sid) return true;
+      if (!isSeasonComplete(state, s.id)) return false;
+    }
+    return false;
+  }
+
+  /** 目前顯示進度的季度：正在收集的季度；全部集齊時為最後一個已開放的季度 */
+  function displaySeasonId(state) {
+    var sid = currentSeasonId(state);
+    if (sid) return sid;
+    var last = "s1";
+    DATA.seasons.forEach(function (s) { if (seasonUnlocked(state, s.id)) last = s.id; });
+    return last;
+  }
+
+  /**
+   * 新一季開放時（上一季集齊）：上一季的最後一張（transform.from，例如鬧鬧萌可）變成這一季的第一張（transform.to，例如幸福萌可），
+   * 直接送出（不需要刷牙、不佔早上 / 晚上的名額），並記下「還沒有顯示過」的通知（state.news）。已經有的話什麼也不做。
+   * 回傳這次送出的 [{ season, item, from }]（沒有新的 → 空陣列）。會改動 state，呼叫後要保存。
+   */
+  function applyUnlocks(state, ts) {
+    var out = [];
+    DATA.seasons.forEach(function (s) {
+      var to = s.transform && s.transform.to;
+      if (!to || !byId[to] || !seasonUnlocked(state, s.id) || collectedSet(state)[to]) return;
+      state.collected.push({ id: to, t: ts, d: dayKey(ts), s: null });
+      state.pending = null;
+      if (!state.news) state.news = [];
+      if (state.news.indexOf(s.id) < 0) state.news.push(s.id);
+      out.push({ season: s.id, item: byId[to], from: byId[s.transform.from] || null });
+    });
+    return out;
+  }
+  /** 還沒有顯示過的新一季通知（取出後要用 clearNews 移除） */
+  function pendingNews(state) { return (state.news && state.news[0]) || null; }
+  function clearNews(state, sid) {
+    var nw = (state.news || []).filter(function (x) { return x !== sid; });
+    if (nw.length) state.news = nw; else delete state.news;
   }
 
   function pick(arr, rng) { return arr[Math.floor(rng() * arr.length) % arr.length]; }
@@ -157,7 +210,10 @@
     return pick(pool, rng).id;
   }
 
-  /** 其他季度的預設抽卡（第二季的掛鉤）：未收集中平均抽，finalItem 放最後 */
+  /**
+   * 其他季度（第二季）的抽卡：first 清單的卡片先（第 1 張 s2-m-01 由 applyUnlocks 直接送出），
+   * 其餘從未收集的卡片中平均抽（萌可和劇照混在一起，不重複），finalItem（妖妖萌可）一定是最後一張。
+   */
   function drawNextGeneric(sid, collectedIds, rng) {
     var s = season(sid);
     var have = {};
@@ -260,11 +316,15 @@
     if (!id) return { kind: "all-done", slot: slot, day: key };
     collect(state, id, endTs, key, k.done);
     day[k.card] = id;
-    return {
+    var res = {
       kind: "capture", slot: slot, day: key, item: byId[id],
       number: collectedIn(state, byId[id].season).length,
       seasonComplete: isSeasonComplete(state, sidBefore) ? sidBefore : null
     };
+    // 集齊一季 → 下一季開放，transform 的卡片直接送出（見 applyUnlocks）
+    var un = applyUnlocks(state, endTs);
+    res.unlock = un.length ? un[0] : null;
+    return res;
   }
 
   /** 某天得到的卡片數（0–2） */
@@ -395,7 +455,8 @@
     byId: byId, dayKey: dayKey, slotOf: slotOf, ymd: ymd, SLOT_KEYS: SLOT_KEYS,
     season: season, seasonItems: seasonItems, emptyState: emptyState, normalizeState: normalizeState,
     collectedSet: collectedSet, collectedIn: collectedIn, currentSeasonId: currentSeasonId,
-    isSeasonComplete: isSeasonComplete, drawNextS1: drawNextS1, drawNext: drawNext,
+    isSeasonComplete: isSeasonComplete, seasonUnlocked: seasonUnlocked, displaySeasonId: displaySeasonId,
+    applyUnlocks: applyUnlocks, pendingNews: pendingNews, clearNews: clearNews, drawNextS1: drawNextS1, drawNext: drawNext,
     getDay: getDay, validPending: validPending, ensurePending: ensurePending, planBrush: planBrush,
     canEarn: canEarn, brushStartTs: brushStartTs,
     recordBrush: recordBrush, cardsOnDay: cardsOnDay, migrateState: migrateState,

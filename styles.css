@@ -279,9 +279,9 @@ img { -webkit-user-drag: none; }
 
 /* ---------- 畫冊 ---------- */
 .season-bar { width: 100%; display: flex; gap: 8px; margin-bottom: 10px; }
-.season-chip { flex: 1; text-align: center; padding: 8px 6px; border-radius: 16px; font-size: 17px; font-weight: 800; }
-.season-chip.on { background: var(--pink); color: #fff; }
-.season-chip.locked { background: #efe7f7; color: #a996bd; }
+.season-chip { flex: 1; text-align: center; padding: 8px 6px; min-height: 44px; border-radius: 16px; font-size: 17px; font-weight: 800; background: #fff; color: var(--pink-d); box-shadow: 0 2px 6px rgba(155,107,255,.12); }
+.season-chip.on { background: var(--pink); color: #fff; box-shadow: none; }
+.season-chip.locked { background: #efe7f7; color: #a996bd; box-shadow: none; cursor: default; }
 .tabs { width: 100%; display: flex; gap: 6px; background: #fff; border-radius: 26px; padding: 6px; box-shadow: 0 3px 10px rgba(155,107,255,.15); margin-bottom: 14px; }
 .tab { flex: 1; min-height: 52px; border-radius: 22px; background: transparent; font-size: 21px; font-weight: 800; color: var(--ink-soft); }
 .tab small { font-size: 14px; font-weight: 700; }
@@ -340,6 +340,19 @@ img { -webkit-user-drag: none; }
 .celebrate-emoji { font-size: 90px; animation: bob 2s ease-in-out infinite; position: relative; z-index: 2; }
 .celebrate-title { font-size: 36px; font-weight: 900; color: var(--pink-d); margin: 10px 0 0; position: relative; z-index: 2; }
 #screen-celebrate .result-msg, #screen-celebrate .btn { position: relative; z-index: 2; }
+.locked-card.open { background: #fff0f8; color: var(--pink-d); border-color: #ffb3da; }
+
+/* ---------- 新一季開始（鬧鬧萌可變成幸福萌可） ---------- */
+#screen-unlock { justify-content: center; text-align: center; position: relative; overflow: hidden; }
+#screen-unlock > * { position: relative; z-index: 2; }
+#screen-unlock > .sparkles { position: absolute; z-index: 0; }
+.unlock-sub { margin: 0; font-size: 26px; font-weight: 900; color: var(--purple-d); }
+.unlock-cards { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 14px 0 6px; width: 100%; }
+.unlock-card { width: 190px; aspect-ratio: 1; border-radius: 26px; overflow: hidden; border: 6px solid #fff; background: #fff; box-shadow: 0 8px 22px rgba(155,107,255,.28); animation: bob 2.4s ease-in-out infinite; }
+.unlock-card.small { width: 100px; border-width: 4px; border-radius: 20px; animation: none; opacity: .85; }
+.unlock-card img, .unlock-card .placeholder { width: 100%; height: 100%; object-fit: contain; display: block; }
+.unlock-arrow { font-size: 30px; color: var(--pink-d); font-weight: 900; }
+@media (max-height: 740px) { .unlock-card { width: 150px; } .unlock-card.small { width: 84px; } }
 .locked-card { position: relative; z-index: 2; width: 100%; margin: 0 0 18px; padding: 18px; border-radius: 24px; background: #efe7f7; color: #9c88b3; font-size: 24px; font-weight: 900; display: flex; align-items: center; justify-content: center; gap: 10px; border: 3px dashed #d5c4ea; }
 
 /* ---------- 家長區 ---------- */
